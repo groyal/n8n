@@ -17,7 +17,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Logger } from '@n8n/backend-common';
 
+import { createExecutionIdV2 } from '@/executions/execution-id';
 import { EngineV2LifecycleSubscriptions } from '@/modules/engine-v2/engine-lifecycle-event-subscriptions';
+import { EngineV2ExecutionCompletions } from '@/modules/engine-v2/engine-v2-execution-completions';
 import { createInMemoryExecutionChannel } from '@/modules/engine-v2/execution-channel/in-memory-execution-channel';
 import { ExecutionChannelReceiver } from '@/modules/engine-v2/execution-channel/execution-channel-receiver';
 import { createLifecycleEventCodec } from '@/modules/engine-v2/execution-channel/lifecycle-event-frame';
@@ -90,7 +92,7 @@ const runEvents = (
 	{ type: 'execution:completed', executionId, workflowId, at },
 ];
 
-const manualRun = async (pushRef?: string) => {
+const manualRun = async (pushRef?: string, engineV2ExecutionId?: string) => {
 	const workflow = await createWorkflow(
 		{
 			active: false,
@@ -107,6 +109,7 @@ const manualRun = async (pushRef?: string) => {
 		workflowData: workflow,
 		userId: owner.id,
 		pushRef,
+		engineV2ExecutionId,
 		triggerToStartFrom: { name: TRIGGER_NAME },
 	};
 
@@ -312,4 +315,34 @@ describe('lifecycle events of engine v2 runs', () => {
 
 		expect(pushSend()).not.toHaveBeenCalled();
 	});
+});
+
+describe('waiting for the end of an engine v2 run', () => {
+	test.each([
+		['completes', 'execution:completed', 'success'],
+		['fails', 'execution:failed', 'error'],
+	] as const)(
+		'resolves the wait of a run without an editor when it %s',
+		async (_name, endType, status) => {
+			startExecution.mockImplementation(async (request: StartExecutionRequest) => {
+				const { executionId, workflowId } = request;
+				const [started] = runEvents(executionId, workflowId, 'set-id');
+				await lifecycleEventSender.send(
+					[started, { type: endType, executionId, workflowId, at }],
+					new AbortController().signal,
+				);
+				return { executionId };
+			});
+			const executionId = createExecutionIdV2();
+			const watch = await Container.get(EngineV2ExecutionCompletions).watch(executionId);
+
+			await manualRun(undefined, executionId);
+
+			await expect(watch.wait({ timeoutMs: 5_000 })).resolves.toEqual({ kind: 'finished', status });
+			expect(startExecution).toHaveBeenCalledWith(
+				expect.objectContaining({ executionId, lifecycleEventSubscription: { kind: 'all' } }),
+			);
+			expect(pushSend()).not.toHaveBeenCalled();
+		},
+	);
 });

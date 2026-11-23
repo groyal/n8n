@@ -1,5 +1,5 @@
 import { Container, Service } from '@n8n/di';
-import type { SeededSteps, StartExecutionRequest } from '@n8n/engine';
+import type { LifecycleEventSubscription, SeededSteps, StartExecutionRequest } from '@n8n/engine';
 import {
 	ConflictError,
 	NotFoundError,
@@ -280,8 +280,7 @@ export class EngineV2Dispatcher {
 					projectId: data.projectId,
 				},
 				responseExpectation: toResponseExpectation(data.engineV2Response?.responseMode),
-				// Only a run with a push ref has an editor session to relay events to.
-				lifecycleEventSubscription: data.pushRef ? { kind: 'all' } : undefined,
+				lifecycleEventSubscription: await this.toLifecycleEventSubscription(executionId, data),
 			},
 		};
 	}
@@ -326,6 +325,24 @@ export class EngineV2Dispatcher {
 				workflowName: workflowData.name,
 			},
 		});
+	}
+
+	/** Lifecycle events go to an editor that watches the run, or to a caller that waits for its end. */
+	private async toLifecycleEventSubscription(
+		executionId: string,
+		data: IWorkflowExecutionDataProcess,
+	): Promise<LifecycleEventSubscription | undefined> {
+		if (data.pushRef) return { kind: 'all' };
+		// A caller can only watch a run whose id it minted.
+		if (data.engineV2ExecutionId === undefined) return undefined;
+
+		// Lazily imported: the completions belong to the engine-v2 module.
+		const { EngineV2ExecutionCompletions } = await import(
+			'@/modules/engine-v2/engine-v2-execution-completions.js'
+		);
+		if (!Container.get(EngineV2ExecutionCompletions).isWatching(executionId)) return undefined;
+
+		return { kind: 'all' };
 	}
 
 	/** v1's `resolvePinData`: a production run ignores pinned data. */
