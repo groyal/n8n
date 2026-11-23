@@ -327,7 +327,7 @@ export class EngineV2Dispatcher {
 		});
 	}
 
-	/** Lifecycle events go to an editor that watches the run, or to a caller that waits for its end. */
+	/** An editor shows every event. A caller that waits for the end needs only the execution events. */
 	private async toLifecycleEventSubscription(
 		executionId: string,
 		data: IWorkflowExecutionDataProcess,
@@ -342,7 +342,7 @@ export class EngineV2Dispatcher {
 		);
 		if (!Container.get(EngineV2ExecutionCompletions).isWatching(executionId)) return undefined;
 
-		return { kind: 'all' };
+		return { kind: 'execution' };
 	}
 
 	/** v1's `resolvePinData`: a production run ignores pinned data. */

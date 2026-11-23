@@ -282,7 +282,7 @@ describe('EngineV2Dispatcher', () => {
 			await dispatcher.start(runData({ engineV2ExecutionId: executionId }));
 
 			expect(proxy.startExecution).toHaveBeenCalledWith(
-				expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
+				expect.objectContaining({ lifecycleEventSubscription: { kind: 'execution' } }),
 			);
 			// Nothing relays the events to an editor.
 			expect(pushRegistry.register).not.toHaveBeenCalled();
