@@ -2747,6 +2747,17 @@ describe('Promotions in Public API', () => {
 						accessRequirements: [],
 						conflicts: [],
 						warnings,
+						missingDependencies: [
+							{
+								kind: 'variable',
+								name: 'API_URL',
+								group: 'needs-action',
+								reason: 'not-on-instance',
+								accessible: true,
+								blocking: true,
+								consumers,
+							},
+						],
 					},
 					warnings,
 					counts: {
@@ -2940,6 +2951,17 @@ describe('Promotions in Public API', () => {
 						accessRequirements: [],
 						conflicts: [],
 						warnings,
+						missingDependencies: [
+							{
+								kind: 'variable',
+								name: 'API_URL',
+								group: 'needs-action',
+								reason: 'not-on-instance',
+								accessible: true,
+								blocking: true,
+								consumers,
+							},
+						],
 					},
 					warnings,
 					counts: {
