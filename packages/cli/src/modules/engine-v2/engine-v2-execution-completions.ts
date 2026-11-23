@@ -1,9 +1,10 @@
 import { Service } from '@n8n/di';
 import type { LifecycleEvent } from '@n8n/engine';
+import type { ExecutionStatus } from 'n8n-workflow';
 
 import { EngineV2LifecycleSubscriptions } from './engine-lifecycle-event-subscriptions';
 
-type FinishedStatus = 'success' | 'error' | 'canceled';
+type FinishedStatus = Extract<ExecutionStatus, 'success' | 'error' | 'canceled'>;
 
 export type EngineV2CompletionOutcome =
 	| { kind: 'finished'; status: FinishedStatus }
@@ -11,6 +12,9 @@ export type EngineV2CompletionOutcome =
 	| { kind: 'aborted' };
 
 type WaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
+
+/** Node runs a longer `setTimeout` delay after 1 ms. */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 export interface EngineV2CompletionWatch {
 	/**
@@ -68,7 +72,8 @@ class CompletionWatch implements EngineV2CompletionWatch {
 			};
 			const onFinish = (status: FinishedStatus) => settle({ kind: 'finished', status });
 			const onAbort = () => settle({ kind: 'aborted' });
-			const timer = setTimeout(() => settle({ kind: 'timeout' }), timeoutMs);
+			const delay = Math.min(timeoutMs, MAX_TIMER_DELAY_MS);
+			const timer = setTimeout(() => settle({ kind: 'timeout' }), delay);
 			abortSignal?.addEventListener('abort', onAbort, { once: true });
 			this.waiters.add(onFinish);
 		});
@@ -85,12 +90,16 @@ class CompletionWatch implements EngineV2CompletionWatch {
 
 /**
  * Lets control-plane code wait for the end of an engine v2 execution without
- * polling. Events are not replayed, so watch the execution before it starts:
+ * polling. Events are not replayed, so watch the execution before it starts.
+ * Only an engine v2 run sends events: the workflow sets `engineType: 'v2'`, and
+ * `EngineV2Dispatcher.routesToEngineV2` routes its mode. For any other run,
+ * `run()` returns a different id, and `wait` ends with `timeout`.
  *
  * ```ts
  * const executionId = createExecutionIdV2();
  * const watch = await completions.watch(executionId);
  * try {
+ * 	// For an engine v2 run, `run()` returns `executionId`.
  * 	await workflowRunner.run({ ...runData, engineV2ExecutionId: executionId });
  * 	const outcome = await watch.wait({ timeoutMs });
  * } finally {
@@ -111,6 +120,7 @@ export class EngineV2ExecutionCompletions {
 	/**
 	 * Resolves once the subscription is active.
 	 *
+	 * @throws {UnexpectedError} If the lifecycle event receiver is not set.
 	 * @throws {OperationalError} If the subscription fails or times out.
 	 */
 	async watch(executionId: string): Promise<EngineV2CompletionWatch> {

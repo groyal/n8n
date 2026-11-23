@@ -3,7 +3,8 @@
  *
  * The data plane publishes lifecycle events on the execution channel. The
  * control plane subscribes for the runs that an editor watches and relays the
- * events as push messages. This test uses the in-memory channel of in-process
+ * events as push messages. Control-plane code can also wait for the end of a
+ * run through these events. This test uses the in-memory channel of in-process
  * mode and a fake data plane that publishes events when a run starts.
  */
 

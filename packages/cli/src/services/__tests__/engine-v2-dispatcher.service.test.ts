@@ -264,14 +264,14 @@ describe('EngineV2Dispatcher', () => {
 			'subscribes to all lifecycle events for a run with a push ref %s',
 			async (_name, watched) => {
 				completions.isWatching.mockReturnValue(watched);
+				const executionId = createExecutionIdV2();
 
-				await dispatcher.start(
-					runData({ pushRef: 'push-1', engineV2ExecutionId: createExecutionIdV2() }),
-				);
+				await dispatcher.start(runData({ pushRef: 'push-1', engineV2ExecutionId: executionId }));
 
 				expect(proxy.startExecution).toHaveBeenCalledWith(
 					expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
 				);
+				expect(lifecycleSubscriptions.subscribe).toHaveBeenCalledWith(executionId);
 			},
 		);
 

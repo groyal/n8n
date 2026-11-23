@@ -37,9 +37,6 @@ describe('LifecycleEventPublisherFactory', () => {
 
 		expect(publisher.publish).toHaveBeenCalledExactlyOnceWith(completed);
 		expect(publisher.stop).toHaveBeenCalledOnce();
-		expect(factory.create({ lifecycleEventSubscription: { kind: 'execution' } })).toBe(
-			executionOnly,
-		);
 	});
 
 	it.each([

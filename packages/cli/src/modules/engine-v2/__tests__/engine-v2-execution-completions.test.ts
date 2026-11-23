@@ -51,15 +51,19 @@ describe('EngineV2ExecutionCompletions', () => {
 		['execution:completed', 'success'],
 		['execution:failed', 'error'],
 		['execution:cancelled', 'canceled'],
-	] as const)('reports %s as a finished run with status %s', async (type, status) => {
-		const watch = await completions.watch(executionId);
+	] as const)(
+		'reports %s as a finished run with status %s to every pending and later wait',
+		async (type, status) => {
+			const watch = await completions.watch(executionId);
+			const pending = [watch.wait({ timeoutMs: 1_000 }), watch.wait({ timeoutMs: 1_000 })];
 
-		emit(ended(type));
+			emit(ended(type));
 
-		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({ kind: 'finished', status });
-		// A second wait gets the same answer.
-		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({ kind: 'finished', status });
-	});
+			const finished = { kind: 'finished', status };
+			await expect(Promise.all(pending)).resolves.toEqual([finished, finished]);
+			await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual(finished);
+		},
+	);
 
 	it('ignores events that do not end the execution', async () => {
 		const watch = await completions.watch(executionId);
@@ -76,6 +80,16 @@ describe('EngineV2ExecutionCompletions', () => {
 		await vi.advanceTimersByTimeAsync(1_000);
 
 		await expect(outcome).resolves.toEqual({ kind: 'timeout' });
+	});
+
+	it('keeps waiting when the timeout is above the largest delay of setTimeout', async () => {
+		const watch = await completions.watch(executionId);
+		const outcome = watch.wait({ timeoutMs: 2 ** 31 });
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		emit(ended('execution:completed'));
+
+		await expect(outcome).resolves.toEqual({ kind: 'finished', status: 'success' });
 	});
 
 	it('resolves as aborted at once when the signal is already aborted', async () => {
@@ -99,7 +113,7 @@ describe('EngineV2ExecutionCompletions', () => {
 		],
 		['the signal aborts', async () => controller.abort(), { kind: 'aborted' }],
 	])(
-		'ends a pending wait and clears its timer and abort listener when %s',
+		'ends a pending wait, clears its timer and abort listener, and still records the end when %s',
 		async (_name, settle, expected) => {
 			const watch = await completions.watch(executionId);
 			const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
@@ -110,13 +124,18 @@ describe('EngineV2ExecutionCompletions', () => {
 			await expect(outcome).resolves.toEqual(expected);
 			expect(vi.getTimerCount()).toBe(0);
 			expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+			emit(ended('execution:failed'));
+			await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
+				kind: 'finished',
+				status: 'error',
+			});
 		},
 	);
 
 	it.each([
 		['the execution ends', () => emit(ended('execution:completed'))],
 		['the watch stops', () => {}],
-	])('removes its listener once when %s', async (_name, end) => {
+	])('removes its listener once and stops watching when %s', async (_name, end) => {
 		const watch = await completions.watch(executionId);
 
 		end();
@@ -124,6 +143,7 @@ describe('EngineV2ExecutionCompletions', () => {
 		watch.stop();
 
 		expect(remove).toHaveBeenCalledTimes(1);
+		expect(completions.isWatching(executionId)).toBe(false);
 	});
 
 	it('removes its listener when the end arrives before the subscription is active', async () => {
