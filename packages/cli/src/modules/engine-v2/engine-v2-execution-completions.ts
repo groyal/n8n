@@ -11,19 +11,19 @@ export type EngineV2CompletionOutcome =
 	| { kind: 'timeout' }
 	| { kind: 'aborted' };
 
-type WaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
+export type EngineV2CompletionWaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
 
 /** Node runs a longer `setTimeout` delay after 1 ms. */
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 export interface EngineV2CompletionWatch {
 	/**
-	 * Resolves when the execution ends, the time runs out, or the signal aborts.
-	 * Never rejects. Does not stop the watch, and does not cancel the run.
+	 * Resolves when the execution ends, the time runs out, the signal aborts, or
+	 * the watch stops. Never rejects. Does not stop the watch or cancel the run.
 	 * `timeoutMs` is required: delivery is at-most-once, so the end can be lost.
 	 */
-	wait(options: WaitOptions): Promise<EngineV2CompletionOutcome>;
-	/** Ends the watch. A pending wait still ends through its timeout or signal. */
+	wait(options: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome>;
+	/** Ends the watch and resolves each pending wait as `aborted`. */
 	stop(): void;
 }
 
@@ -34,57 +34,58 @@ const FINISHED_STATUS: Partial<Record<LifecycleEvent['type'], FinishedStatus>> =
 };
 
 class CompletionWatch implements EngineV2CompletionWatch {
-	private status?: FinishedStatus;
-
-	private ended = false;
+	private outcome?: EngineV2CompletionOutcome;
 
 	private removeListener?: () => void;
 
-	private readonly waiters = new Set<(status: FinishedStatus) => void>();
+	private readonly waiters = new Set<(outcome: EngineV2CompletionOutcome) => void>();
 
 	constructor(private readonly onEnd: () => void) {}
 
 	/** The end can arrive before `listen` returns the remove function. */
 	attach(removeListener: () => void): void {
-		if (this.ended) removeListener();
+		if (this.outcome) removeListener();
 		else this.removeListener = removeListener;
 	}
 
 	receive(event: LifecycleEvent): void {
 		const status = FINISHED_STATUS[event.type];
-		if (status === undefined || this.ended) return;
-
-		this.status = status;
-		this.stop();
-		for (const settle of [...this.waiters]) settle(status);
+		if (status !== undefined) this.end({ kind: 'finished', status });
 	}
 
-	async wait({ timeoutMs, abortSignal }: WaitOptions): Promise<EngineV2CompletionOutcome> {
-		if (this.status) return { kind: 'finished', status: this.status };
+	async wait({
+		timeoutMs,
+		abortSignal,
+	}: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome> {
+		if (this.outcome) return this.outcome;
 		if (abortSignal?.aborted) return { kind: 'aborted' };
 
 		return await new Promise((resolve) => {
 			const settle = (outcome: EngineV2CompletionOutcome) => {
 				clearTimeout(timer);
 				abortSignal?.removeEventListener('abort', onAbort);
-				this.waiters.delete(onFinish);
+				this.waiters.delete(settle);
 				resolve(outcome);
 			};
-			const onFinish = (status: FinishedStatus) => settle({ kind: 'finished', status });
 			const onAbort = () => settle({ kind: 'aborted' });
 			const delay = Math.min(timeoutMs, MAX_TIMER_DELAY_MS);
-			const timer = setTimeout(() => settle({ kind: 'timeout' }), delay);
+			const timer = setTimeout(() => settle({ kind: 'timeout' }), delay).unref();
 			abortSignal?.addEventListener('abort', onAbort, { once: true });
-			this.waiters.add(onFinish);
+			this.waiters.add(settle);
 		});
 	}
 
 	stop(): void {
-		if (this.ended) return;
+		this.end({ kind: 'aborted' });
+	}
 
-		this.ended = true;
+	private end(outcome: EngineV2CompletionOutcome): void {
+		if (this.outcome) return;
+
+		this.outcome = outcome;
 		this.removeListener?.();
 		this.onEnd();
+		for (const settle of [...this.waiters]) settle(outcome);
 	}
 }
 

@@ -132,19 +132,27 @@ describe('EngineV2ExecutionCompletions', () => {
 		},
 	);
 
-	it.each([
-		['the execution ends', () => emit(ended('execution:completed'))],
-		['the watch stops', () => {}],
-	])('removes its listener once and stops watching when %s', async (_name, end) => {
-		const watch = await completions.watch(executionId);
+	it.each<[string, () => void, EngineV2CompletionOutcome]>([
+		[
+			'the execution ends',
+			() => emit(ended('execution:completed')),
+			{ kind: 'finished', status: 'success' },
+		],
+		['the watch stops', () => {}, { kind: 'aborted' }],
+	])(
+		'removes its listener once, stops watching, and resolves a later wait at once when %s',
+		async (_name, end, expected) => {
+			const watch = await completions.watch(executionId);
 
-		end();
-		watch.stop();
-		watch.stop();
+			end();
+			watch.stop();
+			watch.stop();
 
-		expect(remove).toHaveBeenCalledTimes(1);
-		expect(completions.isWatching(executionId)).toBe(false);
-	});
+			expect(remove).toHaveBeenCalledTimes(1);
+			expect(completions.isWatching(executionId)).toBe(false);
+			await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual(expected);
+		},
+	);
 
 	it('removes its listener when the end arrives before the subscription is active', async () => {
 		subscriptions.listen.mockImplementationOnce(async (_executionId, listener) => {
@@ -161,14 +169,14 @@ describe('EngineV2ExecutionCompletions', () => {
 		});
 	});
 
-	it('ends a wait that is pending after stop through its timeout', async () => {
+	it('resolves a pending wait as aborted and clears its timer when the watch stops', async () => {
 		const watch = await completions.watch(executionId);
 		const outcome = watch.wait({ timeoutMs: 1_000 });
 
 		watch.stop();
-		await vi.advanceTimersByTimeAsync(1_000);
 
-		await expect(outcome).resolves.toEqual({ kind: 'timeout' });
+		await expect(outcome).resolves.toEqual({ kind: 'aborted' });
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it('watches an execution until every watch of it has stopped or seen the end', async () => {

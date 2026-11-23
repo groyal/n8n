@@ -219,11 +219,13 @@ describe('EngineV2LifecycleSubscriptions', () => {
 			const remove = await subscriptions.listen('exec-1', vi.fn());
 			remove();
 
-			await subscriptions.listen('exec-1', vi.fn());
+			const removeNew = await subscriptions.listen('exec-1', vi.fn());
 			remove();
 
 			expect(receiver.receive).toHaveBeenCalledTimes(2);
 			expect(unsubscribe).toHaveBeenCalledTimes(1);
+			removeNew();
+			expect(unsubscribe).toHaveBeenCalledTimes(2);
 		});
 
 		it('keeps the same function added twice as two listeners', async () => {

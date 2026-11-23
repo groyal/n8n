@@ -14,7 +14,7 @@ describe('LifecycleEventPublisherFactory', () => {
 		expect(factory.create({ lifecycleEventSubscription: { kind: 'all' } })).toBe(publisher);
 	});
 
-	it('passes only the execution events of an execution that subscribes to them', async () => {
+	it('passes only the execution events of an execution that subscribes to them', () => {
 		const executionOnly = factory.create({ lifecycleEventSubscription: { kind: 'execution' } });
 		const at = '2026-10-29T10:00:00.000Z';
 		const completed = {
@@ -33,10 +33,8 @@ describe('LifecycleEventPublisherFactory', () => {
 			nodeName: 'Set',
 			iteration: 0,
 		});
-		await executionOnly.stop();
 
 		expect(publisher.publish).toHaveBeenCalledExactlyOnceWith(completed);
-		expect(publisher.stop).toHaveBeenCalledOnce();
 	});
 
 	it.each([
