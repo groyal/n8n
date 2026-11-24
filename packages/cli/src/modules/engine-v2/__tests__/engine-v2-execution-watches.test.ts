@@ -11,6 +11,7 @@ import type {
 import {
 	EngineV2ExecutionWatches,
 	type EngineV2WatchOutcome,
+	type EngineV2ExecutionWatch,
 	type EngineV2ExecutionWait,
 } from '../engine-v2-execution-watches';
 
@@ -35,6 +36,15 @@ const waiting = (wait: EngineV2ExecutionWait): LifecycleEvent => ({
 	workflowId: 'wf-1',
 	...wait,
 });
+
+const stepFields = {
+	executionId,
+	stepId: 'step-1',
+	nodeId: 'node-1',
+	nodeName: 'Wait',
+	iteration: 0,
+	at,
+};
 
 const always = () => true;
 
@@ -147,6 +157,33 @@ describe('EngineV2ExecutionWatches', () => {
 		const second = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
 		await vi.advanceTimersByTimeAsync(1_000);
 		await expect(second).resolves.toEqual({ kind: 'timeout' });
+	});
+
+	it('offers the newest of the waits that arrived before any wait call', async () => {
+		const watch = await watches.watch(executionId);
+		emit(waiting(requestWait));
+		emit(waiting(subExecutionWait));
+
+		await expect(watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always })).resolves.toEqual({
+			kind: 'waiting',
+			wait: subExecutionWait,
+		});
+	});
+
+	it.each<[string, (watch: EngineV2ExecutionWatch) => unknown]>([
+		['a step starts after it', () => emit({ type: 'step:started', ...stepFields })],
+		[
+			'a call rejects it',
+			async (watch) => await watch.wait({ timeoutMs: 1_000, stopWhenWaiting: () => false }),
+		],
+	])('does not offer a wait that arrived before any wait call when %s', async (_name, act) => {
+		const watch = await watches.watch(executionId);
+		emit(waiting(requestWait));
+		act(watch);
+
+		const next = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
+		await vi.advanceTimersByTimeAsync(1_000);
+		await expect(next).resolves.toEqual({ kind: 'timeout' });
 	});
 
 	it('offers a wait to each pending call, keeps it for no later call, and stays subscribed', async () => {
