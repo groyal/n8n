@@ -12,6 +12,7 @@ import {
 	ExecutionNotFoundError,
 	type ExecutionRecord,
 	type ExecutionStore,
+	type ExecutionWaitSummary,
 } from '../execution-store';
 import { stepKeyId, type StepKey, type StepSlots, type StepStatus } from '../execution.types';
 import { StepSettledHandler } from '../step-settled-handler';
@@ -687,6 +688,46 @@ describe('StepSettledHandler', () => {
 
 		expect(executionStore.refreshLiveStatus).toHaveBeenCalledExactlyOnceWith('exec-1');
 	});
+
+	it.each<[string, ExecutionWaitSummary | undefined, unknown[]]>([
+		[
+			'changed the status to waiting',
+			{
+				at: new Date('2026-11-24T10:00:00.000Z'),
+				awaitsRequest: false,
+				awaitsSubExecution: false,
+				lastDeadline: new Date('2026-11-25T10:00:00.000Z'),
+			},
+			[
+				{
+					type: 'execution:waiting',
+					executionId: 'exec-1',
+					workflowId: 'wf-1',
+					at: '2026-11-24T10:00:00.000Z',
+					awaitsRequest: false,
+					awaitsSubExecution: false,
+					lastDeadline: '2026-11-25T10:00:00.000Z',
+				},
+			],
+		],
+		['changed nothing', undefined, []],
+	])(
+		'announces execution:waiting after a settlement only when the refresh %s',
+		async (_name, wait, expected) => {
+			// `m` is terminal and the execution owes more steps, so nothing else is announced.
+			const stepStore = makeStepStore({ id: 'step-m', nodeId: 'm' });
+			const executionStore = makeExecutionStore(
+				{},
+				{ refreshLiveStatus: vi.fn().mockResolvedValue(wait) },
+			);
+			const { handler, lifecycleEventPublisher } = makeHandler(stepStore, { executionStore });
+
+			await handler.handle({ ...event, stepId: 'step-m' });
+
+			const published = vi.mocked(lifecycleEventPublisher.publish).mock.calls;
+			expect(published.map(([update]) => update)).toEqual(expected);
+		},
+	);
 
 	it('plans successors for a waiting execution', async () => {
 		const stepStore = makeStepStore();
