@@ -101,7 +101,7 @@ export interface EngineRuntimeOptions {
 	reconciliationIntervalMs?: number;
 	/**
 	 * The queues to run on, with their concurrency already set. The runtime
-	 * starts and stops the queues its roles consume. The host closes their
+	 * starts and stops the consumers of its roles. The host closes their
 	 * connections.
 	 */
 	queues: EngineWorkQueues;
@@ -176,7 +176,7 @@ export function createEngineRuntime({
 	// otherwise fail every write of a row that becomes `queued` or `running`.
 	if (staleness !== undefined) assertValidStalenessThresholds(staleness);
 
-	const { orchestration: orchestrationQueue, step: stepQueue } = queues;
+	const { publishers, consumers } = queues;
 	const { executionStore, stepStore, executionViewStore } = createStores(dataSource, staleness);
 	// Built once, not per handler: the factory must not run twice.
 	const dependencies =
@@ -194,27 +194,27 @@ export function createEngineRuntime({
 		stepStore,
 		lifecycleEventPublisherFactory,
 		responseSender,
-		stepQueue,
+		publishers.step,
 	);
 	const orchestrationWorker = new OrchestrationWorker(
-		orchestrationQueue,
+		consumers.orchestration,
 		new ExecutionStartHandler(
 			executionStore,
 			stepStore,
-			orchestrationQueue,
+			publishers.orchestration,
 			lifecycleEventPublisherFactory,
 		),
 		new StepSettledHandler(
 			executionStore,
 			stepStore,
-			stepQueue,
-			orchestrationQueue,
+			publishers.step,
+			publishers.orchestration,
 			lifecycleEventPublisherFactory,
 			responseSender,
 			cancelExecution,
 		),
 	);
-	const waitSweeper = new WaitSweeper(stepStore, stepQueue, logger, waitSweepIntervalMs);
+	const waitSweeper = new WaitSweeper(stepStore, publishers.step, logger, waitSweepIntervalMs);
 	const reconciliationSweeper = new ReconciliationSweeper(
 		[
 			new QueuedExecutionDetector(
@@ -234,12 +234,15 @@ export function createEngineRuntime({
 			),
 		],
 		{
-			'execution-queued-no-message': new QueuedExecutionRepair(executionStore, orchestrationQueue),
-			'step-queued-no-message': new QueuedStepRepair(stepStore, stepQueue),
+			'execution-queued-no-message': new QueuedExecutionRepair(
+				executionStore,
+				publishers.orchestration,
+			),
+			'step-queued-no-message': new QueuedStepRepair(stepStore, publishers.step),
 			'step-running-no-worker': new RunningStepRepair(
 				executionStore,
 				stepStore,
-				orchestrationQueue,
+				publishers.orchestration,
 				lifecycleEventPublisherFactory,
 			),
 		},
@@ -264,14 +267,14 @@ export function createEngineRuntime({
 		admittance,
 		executionStore,
 		stepStore,
-		orchestrationQueue,
+		publishers.orchestration,
 	);
 	const stepWorker = new StepWorker(
-		stepQueue,
+		consumers.step,
 		new StepReadyHandler(
 			executionStore,
 			stepStore,
-			orchestrationQueue,
+			publishers.orchestration,
 			dependencies,
 			lifecycleEventPublisherFactory,
 			responseSender,
@@ -290,7 +293,7 @@ export function createEngineRuntime({
 			resumeRequests:
 				resumeSecret === undefined
 					? undefined
-					: new ResumeRequestService(executionStore, stepStore, stepQueue, resumeSecret),
+					: new ResumeRequestService(executionStore, stepStore, publishers.step, resumeSecret),
 			identityVerifier,
 			logger,
 		};
