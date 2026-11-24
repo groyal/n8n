@@ -257,16 +257,26 @@ describe('EngineV2Dispatcher', () => {
 			},
 		);
 
-		it('subscribes to lifecycle events for a run with a push ref', async () => {
-			const executionId = createExecutionIdV2();
+		it.each([
+			['no caller id', { minted: false, watched: false }],
+			['a caller id that nobody watches', { minted: true, watched: false }],
+			['a watched caller id', { minted: true, watched: true }],
+		])(
+			'subscribes to lifecycle events for a run with a push ref and %s',
+			async (_name, { minted, watched }) => {
+				const callerId = minted ? createExecutionIdV2() : undefined;
+				completions.isWatching.mockImplementation((id) => watched && id === callerId);
 
-			await dispatcher.start(runData({ pushRef: 'push-1', engineV2ExecutionId: executionId }));
+				const executionId = await dispatcher.start(
+					runData({ pushRef: 'push-1', engineV2ExecutionId: callerId }),
+				);
 
-			expect(proxy.startExecution).toHaveBeenCalledWith(
-				expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
-			);
-			expect(lifecycleSubscriptions.subscribe).toHaveBeenCalledWith(executionId);
-		});
+				expect(proxy.startExecution).toHaveBeenCalledWith(
+					expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
+				);
+				expect(lifecycleSubscriptions.subscribe).toHaveBeenCalledWith(executionId);
+			},
+		);
 
 		it('requests lifecycle events for a watched run without a push ref', async () => {
 			const executionId = createExecutionIdV2();
