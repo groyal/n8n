@@ -170,8 +170,16 @@ describe('EngineV2ExecutionWatches', () => {
 		});
 	});
 
-	it.each<[string, (watch: EngineV2ExecutionWatch) => unknown]>([
-		['a step starts after it', () => emit({ type: 'step:started', ...stepFields })],
+	it.each<
+		[string, (watch: EngineV2ExecutionWatch) => Promise<EngineV2WatchOutcome> | undefined]
+	>([
+		[
+			'a step starts after it',
+			() => {
+				emit({ type: 'step:started', ...stepFields });
+				return undefined;
+			},
+		],
 		[
 			'a call rejects it',
 			async (watch) => await watch.wait({ timeoutMs: 1_000, stopWhenWaiting: () => false }),
@@ -179,12 +187,31 @@ describe('EngineV2ExecutionWatches', () => {
 	])('does not offer a wait that arrived before any wait call when %s', async (_name, act) => {
 		const watch = await watches.watch(executionId);
 		emit(waiting(requestWait));
-		act(watch);
+		const rejecting = act(watch);
 
 		const next = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
 		await vi.advanceTimersByTimeAsync(1_000);
 		await expect(next).resolves.toEqual({ kind: 'timeout' });
+		if (rejecting) await expect(rejecting).resolves.toEqual({ kind: 'timeout' });
 	});
+
+	it.each([true, false])(
+		'ends a wait call as aborted when its predicate stops the watch and returns %s',
+		async (accepts) => {
+			const watch = await watches.watch(executionId);
+			emit(waiting(requestWait));
+
+			const outcome = watch.wait({
+				timeoutMs: 1_000,
+				stopWhenWaiting: () => {
+					watch.stop();
+					return accepts;
+				},
+			});
+
+			await expect(outcome).resolves.toEqual({ kind: 'aborted' });
+		},
+	);
 
 	it('offers a wait to each pending call, keeps it for no later call, and stays subscribed', async () => {
 		const watch = await watches.watch(executionId);
