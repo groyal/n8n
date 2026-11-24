@@ -65,6 +65,19 @@ describe('EngineV2ExecutionCompletions', () => {
 		},
 	);
 
+	it('keeps the first end when a second end event arrives', async () => {
+		const watch = await completions.watch(executionId);
+
+		emit(ended('execution:completed'));
+		emit(ended('execution:failed'));
+
+		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
+			kind: 'finished',
+			status: 'success',
+		});
+		expect(remove).toHaveBeenCalledTimes(1);
+	});
+
 	it('ignores events that do not end the execution', async () => {
 		const watch = await completions.watch(executionId);
 		const outcome = watch.wait({ timeoutMs: 1_000 });

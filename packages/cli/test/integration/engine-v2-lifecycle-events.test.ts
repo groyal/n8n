@@ -342,7 +342,7 @@ describe('waiting for the end of an engine v2 run', () => {
 
 			await expect(watch.wait({ timeoutMs: 5_000 })).resolves.toEqual({ kind: 'finished', status });
 			expect(startExecution).toHaveBeenCalledWith(
-				expect.objectContaining({ executionId, lifecycleEventSubscription: { kind: 'execution' } }),
+				expect.objectContaining({ executionId, lifecycleEventSubscription: { kind: 'all' } }),
 			);
 			expect(pushSend()).not.toHaveBeenCalled();
 		},

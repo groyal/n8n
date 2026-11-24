@@ -20,7 +20,7 @@ export interface EngineV2CompletionWatch {
 	/**
 	 * Resolves when the execution ends, the time runs out, the signal aborts, or
 	 * the watch stops. Never rejects. Does not stop the watch or cancel the run.
-	 * `timeoutMs` is required: delivery is at-most-once, so the end can be lost.
+	 * `timeoutMs` is required: delivery is best effort, so the end event can be lost.
 	 */
 	wait(options: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome>;
 	/** Ends the watch and resolves each pending wait as `aborted`. */

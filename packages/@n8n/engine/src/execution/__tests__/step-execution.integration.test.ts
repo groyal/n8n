@@ -241,14 +241,9 @@ describe('step execution (integration)', () => {
 	});
 
 	it.each([
-		['leaves the subscription out', null, []],
-		['subscribes to none', { kind: 'none' as const }, []],
-		[
-			'subscribes to execution',
-			{ kind: 'execution' as const },
-			['execution:started', 'execution:completed'],
-		],
-	])('announces the subscribed events when the caller %s', async (_name, subscription, types) => {
+		['leaves the subscription out', null],
+		['subscribes to none', { kind: 'none' as const }],
+	])('announces nothing when the caller %s', async (_name, lifecycleEventSubscription) => {
 		const executor: IStepExecutor = {
 			execute: async () => {
 				await Promise.resolve();
@@ -256,12 +251,10 @@ describe('step execution (integration)', () => {
 			},
 		};
 
-		const { execution, events } = await runWorkflow(executor, [{}], {
-			lifecycleEventSubscription: subscription,
-		});
+		const { execution, events } = await runWorkflow(executor, [{}], { lifecycleEventSubscription });
 
 		expect(execution.status).toBe('completed');
-		expect(events.map(({ type }) => type)).toEqual(types);
+		expect(events).toEqual([]);
 	});
 
 	it('records the error when a step throws', async () => {

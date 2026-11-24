@@ -257,32 +257,25 @@ describe('EngineV2Dispatcher', () => {
 			},
 		);
 
-		it.each([
-			['that nobody else watches', false],
-			['that a caller also watches', true],
-		])(
-			'subscribes to all lifecycle events for a run with a push ref %s',
-			async (_name, watched) => {
-				completions.isWatching.mockReturnValue(watched);
-				const executionId = createExecutionIdV2();
+		it('subscribes to lifecycle events for a run with a push ref', async () => {
+			const executionId = createExecutionIdV2();
 
-				await dispatcher.start(runData({ pushRef: 'push-1', engineV2ExecutionId: executionId }));
+			await dispatcher.start(runData({ pushRef: 'push-1', engineV2ExecutionId: executionId }));
 
-				expect(proxy.startExecution).toHaveBeenCalledWith(
-					expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
-				);
-				expect(lifecycleSubscriptions.subscribe).toHaveBeenCalledWith(executionId);
-			},
-		);
+			expect(proxy.startExecution).toHaveBeenCalledWith(
+				expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
+			);
+			expect(lifecycleSubscriptions.subscribe).toHaveBeenCalledWith(executionId);
+		});
 
-		it('subscribes to the execution events for a watched run without a push ref', async () => {
+		it('requests lifecycle events for a watched run without a push ref', async () => {
 			const executionId = createExecutionIdV2();
 			completions.isWatching.mockImplementation((id) => id === executionId);
 
 			await dispatcher.start(runData({ engineV2ExecutionId: executionId }));
 
 			expect(proxy.startExecution).toHaveBeenCalledWith(
-				expect.objectContaining({ lifecycleEventSubscription: { kind: 'execution' } }),
+				expect.objectContaining({ lifecycleEventSubscription: { kind: 'all' } }),
 			);
 			// Nothing relays the events to an editor.
 			expect(pushRegistry.register).not.toHaveBeenCalled();
