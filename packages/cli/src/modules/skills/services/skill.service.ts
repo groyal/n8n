@@ -22,7 +22,7 @@ import {
 	type SkillVersionSummary,
 } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
-import { InstanceWriteAccessService, ProjectScopeService } from '@n8n/backend-services';
+import { ProjectScopeService } from '@n8n/backend-services';
 import {
 	accountSummary,
 	TransactionRunner,
@@ -31,7 +31,7 @@ import {
 	type User,
 } from '@n8n/db';
 import { Service } from '@n8n/di';
-import { ConflictError, ForbiddenError, NotFoundError, UserError } from '@n8n/errors';
+import { ConflictError, NotFoundError, UserError } from '@n8n/errors';
 import { ensureError } from '@n8n/utils/errors/ensure-error';
 import { generateNanoId } from '@n8n/utils/generate-nano-id';
 
@@ -165,14 +165,7 @@ export class SkillService {
 		private readonly sourceRepository: SkillSourceRepository,
 		private readonly skillSyncFlagGate: SkillSyncFlagGate,
 		private readonly sourceClients: SkillSourceClientRegistry,
-		private readonly instanceWriteAccess: InstanceWriteAccessService,
 	) {}
-
-	assertWritable(): void {
-		if (this.instanceWriteAccess.isReadOnly()) {
-			throw new ForbiddenError('Cannot modify Skills on a protected instance.');
-		}
-	}
 
 	/** Callers must check access to each returned Skill before reading its content. */
 	async findIdsInProjects(projectIds: string[]): Promise<string[]> {
@@ -189,7 +182,6 @@ export class SkillService {
 
 	/** The caller checks delete access before opening its transaction. */
 	async assertCanDelete(skillId: string, ctx: OperationContext = {}): Promise<void> {
-		this.assertWritable();
 		if ((await this.skillUsage.findUsingAgentIds(skillId, ctx)).length > 0) {
 			throw new ConflictError('A consumer still uses this Skill. Remove its references first.');
 		}
@@ -975,8 +967,9 @@ export class SkillService {
 		target: SkillTarget,
 		exceptSkillId: string | undefined,
 		ctx: OperationContext,
+		plannedNames?: ReadonlyMap<string, string>,
 	): Promise<void> {
-		if (await this.isNameTaken(name, target, exceptSkillId, ctx)) {
+		if (await this.isNameTaken(name, target, exceptSkillId, ctx, plannedNames)) {
 			throw new SkillNameTakenError(name);
 		}
 	}
@@ -997,7 +990,7 @@ export class SkillService {
 		// A rename that only changes case or separators keeps the name key, so it can
 		// clash with nothing new. The legacy rule skipped it too.
 		if (skillNameKey(newName) === skillNameKey(oldName)) return;
-		await this.assertNameFree(newName, target, skillId, ctx);
+		await this.assertNameFree(newName, target, skillId, ctx, plannedNames);
 		await this.skillUsage.assertRenameKeepsNamesApart(skillId, oldName, newName, ctx, plannedNames);
 	}
 
@@ -1010,13 +1003,18 @@ export class SkillService {
 		target: SkillTarget,
 		exceptSkillId: string | undefined,
 		ctx: OperationContext = {},
+		plannedNames?: ReadonlyMap<string, string>,
 	): Promise<boolean> {
 		// Callers may pass a whole skill, so only its target goes to the query.
 		const names = await this.skillRepository.findLatestNamesInTarget(
 			{ projectId: target.projectId },
 			ctx,
 		);
-		return isNameTaken(name, names, exceptSkillId);
+		return isNameTaken(
+			name,
+			names.map((entry) => ({ ...entry, name: plannedNames?.get(entry.skillId) ?? entry.name })),
+			exceptSkillId,
+		);
 	}
 
 	/** Refuses a move that takes the skill away from one of `agentIds`. The rule is `findLosingAgents`. */

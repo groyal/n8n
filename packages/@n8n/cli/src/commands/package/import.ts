@@ -3,7 +3,7 @@ import { Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { toPackagesError } from './package-error';
+import { savedSkillResults, toPackagesError } from './package-error';
 import { BaseCommand } from '../../base-command';
 
 export default class PackageImport extends BaseCommand {
@@ -198,6 +198,8 @@ export default class PackageImport extends BaseCommand {
 					},
 				);
 			} catch (error) {
+				const saved = savedSkillResults(error);
+				if (saved && this.isJsonMode(flags)) this.output(saved, flags);
 				throw toPackagesError(error);
 			}
 			this.output(result, flags);

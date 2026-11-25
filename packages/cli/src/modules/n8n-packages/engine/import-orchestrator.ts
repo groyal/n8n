@@ -34,6 +34,7 @@ import {
 } from '../entities/data-table/data-table-importer';
 import {
 	reconcileSharedWrites,
+	skillIssue,
 	type StandaloneSkillPlan,
 } from '../entities/skill/skill-import.types';
 import type {
@@ -293,10 +294,29 @@ export class ImportOrchestrator {
 		if (options.skillPlan?.removals.length) {
 			assertPackageImportApiKeyScopes(options.apiKeyScopes, ['skill:delete']);
 		}
+		const skillWrites = [
+			...(options.skillPlan?.writes.shared ?? []),
+			...plans.flatMap(({ agentPlan }) => agentPlan?.skills?.shared ?? []),
+		];
+		const renameIssues: BlockingIssue[] = [];
+		if (skillWrites.length) {
+			const { SkillImporter } = await import('../entities/skill/skill-importer.js');
+			for (const issue of await Container.get(SkillImporter).renameIssues(skillWrites)) {
+				const write = skillWrites.find(({ skill }) => skill.id === issue.skillId);
+				renameIssues.push(
+					...(write?.usedBy.length
+						? write.usedBy.map((agentId) =>
+								skillIssue(agentId, write.packageSkillId ?? issue.skillId, issue.message),
+							)
+						: [issue]),
+				);
+			}
+		}
 
 		return [
 			...(await this.collectPackageBlockingIssues(plans, options.mode)),
 			...(options.skillPlan?.issues ?? []),
+			...renameIssues,
 		];
 	}
 

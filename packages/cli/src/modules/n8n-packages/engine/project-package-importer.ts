@@ -1,4 +1,8 @@
-import type { SerializedCredential, SerializedVariable } from '@n8n/api-types';
+import type {
+	ImportedSkillSummary,
+	SerializedCredential,
+	SerializedVariable,
+} from '@n8n/api-types';
 import { Service } from '@n8n/di';
 
 import { UnexpectedError } from '@n8n/errors';
@@ -227,9 +231,9 @@ export class ProjectPackageImporter {
 		await this.importOrchestrator.assertCanUpdateCredentials(planned.map(({ plan }) => plan));
 
 		const projectSummaries = await this.projectImporter.apply(request.user, projectPlan.items);
-		const skillOutcomes = await applyStandaloneSkills(request, plan.skillPlan);
+		const skillOutcomes = await applyStandaloneSkills(request, plan.skillPlan, 'writes');
 		try {
-			const outcome = await this.applyProjectContent(plan, projectSummaries);
+			const outcome = await this.applyProjectContent(plan, projectSummaries, skillOutcomes);
 			return { ...outcome, result: addSkillResults(outcome.result, skillOutcomes, plan.skillPlan) };
 		} catch (error) {
 			throwWithSkillResults(error, skillOutcomes);
@@ -237,8 +241,9 @@ export class ProjectPackageImporter {
 	}
 
 	private async applyProjectContent(
-		{ request, manifest, scopes: planned }: PackageImportPlan,
+		{ request, manifest, scopes: planned, skillPlan }: PackageImportPlan,
 		projectSummaries: ImportedProjectSummary[],
+		skillOutcomes: ImportedSkillSummary[],
 	): Promise<ImportOutcome> {
 		// Resolve every project's workflow ids up front so a sub-workflow reference
 		// that points into another project resolves when its parent is applied.
@@ -260,6 +265,7 @@ export class ProjectPackageImporter {
 				content: await this.importOrchestrator.apply(plan, packageWorkflowBindings),
 			});
 		}
+		skillOutcomes.push(...(await applyStandaloneSkills(request, skillPlan, 'removals')));
 
 		const { workflows: published, agentOutcomes } = await this.importOrchestrator.publishPackage({
 			user: request.user,

@@ -912,7 +912,7 @@ it('reports a rename that clashes with a skill of another Agent that follows the
 	const request = input([agent('source', { skills: [{ type: 'skill', id: 'skill_shared' }] })]);
 	request.skills = [sharedSkill('skill_shared', 'project', 'Pricing')];
 	const plan = await planner.plan(request);
-	expect(plan.blockingIssues).toEqual([
+	expect(await planner.blockingIssues([plan], { mode: 'check', apiKeyScopes: undefined })).toEqual([
 		expect.objectContaining({
 			type: 'agent-invalid',
 			path: 'skills.skill_shared',

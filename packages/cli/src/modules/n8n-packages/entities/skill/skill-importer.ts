@@ -1,4 +1,4 @@
-import { skillNameKey, type ImportedSkillSummary } from '@n8n/api-types';
+import { skillNameKey, type ImportedSkillSummary, type SkillImportIssue } from '@n8n/api-types';
 import { TransactionRunner, type OperationContext, type User } from '@n8n/db';
 import { Service } from '@n8n/di';
 import { ConflictError, ForbiddenError, NotFoundError, UserError } from '@n8n/errors';
@@ -153,21 +153,6 @@ export class SkillImporter {
 				followingAgentCount: row ? await this.skillService.countFollowingAgents(row.id) : 0,
 			});
 		}
-		// Each save sees the names written earlier in the batch.
-		const plannedNames = new Map<string, string>();
-		for (const { skill, target, base } of plan.writes.shared) {
-			const row = existing.get(skill.id);
-			if (!base || !row) continue;
-			const problem = await this.renameProblem(
-				skill.id,
-				target,
-				row.skill.name,
-				skill.skill.name,
-				plannedNames,
-			);
-			if (problem) issue(skill.id, problem);
-			plannedNames.set(skill.id, skill.skill.name);
-		}
 		for (const id of new Set(deletedSkillIds)) {
 			const row = existing.get(id);
 			if (!row) {
@@ -212,15 +197,30 @@ export class SkillImporter {
 				followingAgentCount: 0,
 			});
 		}
-		if (plan.writes.shared.length) {
-			try {
-				this.skillService.assertWritable();
-			} catch (error) {
-				if (!(error instanceof ForbiddenError)) throw error;
-				for (const { skill } of plan.writes.shared) issue(skill.id, error.message);
-			}
-		}
 		return plan;
+	}
+
+	/** Check the final batch in save order, after standalone and Agent writes are combined. */
+	async renameIssues(writes: SkillWrite[]): Promise<SkillImportIssue[]> {
+		const updates = writes.filter((write) => write.base);
+		if (updates.length === 0) return [];
+		const existing = await this.skillService.findLatest(updates.map(({ skill }) => skill.id));
+		const plannedNames = new Map<string, string>();
+		const issues: SkillImportIssue[] = [];
+		for (const { skill, target } of updates) {
+			const row = existing.get(skill.id);
+			if (!row) continue;
+			const message = await this.renameProblem(
+				skill.id,
+				target,
+				row.skill.name,
+				skill.skill.name,
+				plannedNames,
+			);
+			if (message) issues.push({ type: 'skill-conflict', skillId: skill.id, message });
+			plannedNames.set(skill.id, skill.skill.name);
+		}
+		return issues;
 	}
 
 	async applyStandalone(user: User, plan: StandaloneSkillPlan): Promise<ImportedSkillSummary[]> {
@@ -235,11 +235,17 @@ export class SkillImporter {
 				plan.checked.map(({ id }) => id),
 				ctx,
 			);
+			// Domain writers recheck updated and removed rows under these locks.
+			const writtenIds = new Set([
+				...plan.writes.shared.map(({ skill }) => skill.id),
+				...plan.removals.map(({ id }) => id),
+			]);
+			const kept = plan.checked.filter(({ id }) => !writtenIds.has(id));
 			const latest = await this.skillService.findLatest(
-				plan.checked.map(({ id }) => id),
+				kept.map(({ id }) => id),
 				ctx,
 			);
-			for (const checked of plan.checked) {
+			for (const checked of kept) {
 				const current = latest.get(checked.id);
 				if (
 					!current ||
@@ -248,6 +254,8 @@ export class SkillImporter {
 				) {
 					throw new ConflictError('A Skill changed after planning. Review the import again.');
 				}
+			}
+			for (const checked of plan.checked) {
 				if (await this.skillService.isSourceManaged(checked.id, ctx)) {
 					throw new ConflictError('The destination Skill is now managed by a source.');
 				}
@@ -259,7 +267,7 @@ export class SkillImporter {
 			return followingIds;
 		});
 		try {
-			await this.skillService.refreshFollowingAgents([...new Set(following)]);
+			if (following.length) await this.skillService.refreshFollowingAgents([...new Set(following)]);
 		} catch (error) {
 			throw new SkillImportFailedError(error, plan.outcomes);
 		}
@@ -398,9 +406,7 @@ export class SkillImporter {
 		}
 		const decision = decideWrite(skill, target, current, conflictPolicy);
 		if (decision.kind !== 'write') return decision;
-		const nameProblem = current
-			? await this.renameProblem(skill.id, target, current.skill.name, name)
-			: await this.createNameProblem(skill.id, target, name);
+		const nameProblem = current ? undefined : await this.createNameProblem(skill.id, target, name);
 		return nameProblem ? { kind: 'issue', message: nameProblem } : decision;
 	}
 
@@ -459,7 +465,6 @@ export class SkillImporter {
 		writes: SkillWrite[],
 		projectPendingCreation = false,
 	): Promise<void> {
-		if (writes.length) this.skillService.assertWritable();
 		const denied: string[] = [];
 		for (const write of writes) {
 			if (!(await this.canWrite(user, write, projectPendingCreation))) {
@@ -485,7 +490,6 @@ export class SkillImporter {
 
 	/** Returns the Agents that follow a saved skill. */
 	private async write(user: User, write: SkillWrite, ctx: OperationContext): Promise<string[]> {
-		this.skillService.assertWritable();
 		const { id, skill, frontmatter } = write.skill;
 		if (!write.base) {
 			await this.skillService.createTrusted(
