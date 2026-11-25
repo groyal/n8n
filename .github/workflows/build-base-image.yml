@@ -72,6 +72,7 @@ jobs:
           # A dispatch can build some targets only, so the other tags stay on their digests.
           ONLY: ${{ inputs.targets }}
         run: |
+          ONLY=${ONLY// /}
           if [ -n "$ONLY" ] && [[ ",$ONLY," != *",$TARGET,"* ]]; then
             echo "The dispatch builds $ONLY only."
             echo "changed=false" >> "$GITHUB_OUTPUT"

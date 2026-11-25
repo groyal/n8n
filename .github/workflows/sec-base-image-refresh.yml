@@ -304,7 +304,8 @@ jobs:
   rebuild:
     name: Rebuild the base images for patched packages
     needs: refresh
-    if: ${{ !cancelled() && needs.refresh.result != 'skipped' }}
+    # The mode step runs right after the candidate scan, so its output tells that the candidates exist.
+    if: ${{ !cancelled() && needs.refresh.outputs.preview != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Only this job dispatches build-base-image.yml. It also reads the build runs,
@@ -404,9 +405,9 @@ jobs:
           SLACK_TOKEN: ${{ secrets.QBOT_SLACK_TOKEN }}
         run: node .github/scripts/slack/notify.mjs --channel '#updates-security' --text "$(cat rebuild-alerts.txt)"
 
-      # A preview dispatches nothing, so it keeps no state.
+      # A preview dispatches nothing, so it keeps no state. A failed PR or alert step must not lose a dispatch.
       - name: Upload the rebuild state
-        if: needs.refresh.outputs.preview == 'false'
+        if: ${{ !cancelled() && needs.refresh.outputs.preview == 'false' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: base-image-rebuild-state
