@@ -1,0 +1,12 @@
+{
+  "slackApi": "sap.thirdparty:apiResource:SLACK:v1",
+  "microsoftOutlookOAuth2Api": "sap.thirdparty:apiResource:OUTLOOK:v1",
+  "microsoftTeamsOAuth2Api": "sap.thirdparty:apiResource:TEAMS:v1",
+  "jinaAiApi": "sap.thirdparty:apiResource:JINA:v1",
+  "jiraSoftwareCloudApi": "sap.thirdparty:apiResource:JIRA:v1",
+  "telegramApi": "sap.thirdparty:apiResource:TELEGRAM:v1",
+  "freshdeskApi": "sap.thirdparty:apiResource:FRESHDESK:v1",
+  "googleApi": "sap.thirdparty:apiResource:GOOGLE_SHEETS:v4",
+  "googleSheetsOAuth2Api": "sap.thirdparty:apiResource:GOOGLE_SHEETS:v4",
+  "acmeCommunityApi": "sap.thirdparty:apiResource:ACME_COMMUNITY:v1"
+}

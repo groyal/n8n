@@ -1,4 +1,5 @@
 import type { CreateCredentialDto, CredentialConnectionStatus } from '@n8n/api-types';
+import { assertManagedCredentialType } from '@/spike-managed-credential-types';
 import { Logger } from '@n8n/backend-common';
 import {
 	CredentialRestrictionsProviderProxy,
@@ -1403,6 +1404,8 @@ export class CredentialsService {
 		projectId: string,
 		decryptedCredentialData?: ICredentialDataDecryptedObject,
 	) {
+		assertManagedCredentialType(credential.type);
+
 		// To avoid side effects
 		const newCredential = new CredentialsEntity();
 		Object.assign(newCredential, credential, encryptedData);

@@ -12,6 +12,7 @@ import type {
 	INode,
 	INodeCredentialDescription,
 	INodeCredentialsDetails,
+	INodeProperties,
 	INodeExecutionData,
 	INodeInputConfiguration,
 	INodeOutputConfiguration,
@@ -48,6 +49,12 @@ import { createExecutionCustomData } from './utils/custom-data';
 import { ensureType } from './utils/ensure-type';
 import { extractValue } from './utils/extract-value';
 import { getAdditionalKeys } from './utils/get-additional-keys';
+import {
+	fillManagedPlaceholders,
+	getManagedCredentialType,
+	rememberManagedRequest,
+	resolveManagedCredentialType,
+} from './utils/managed-credential';
 import { validateValueAgainstSchema } from './utils/validate-value-against-schema';
 
 export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCredentials'> {
@@ -328,13 +335,25 @@ export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCr
 
 	/** Returns the requested decrypted credentials if the node has access to them */
 	protected async _getCredentials<T extends object = ICredentialDataDecryptedObject>(
-		type: string,
+		requestedType: string,
 		executeData?: IExecuteData,
 		connectionInputData?: INodeExecutionData[],
 		itemIndex?: number,
 		options?: IGetDecryptedCredentialsOptions,
 	): Promise<T> {
 		const { workflow, node, additionalData, mode, runExecutionData, runIndex } = this;
+		const type = resolveManagedCredentialType(node, requestedType);
+
+		// SPIKE (API-663): no credential is stored in managed mode. Whatever the node's slot
+		// holds is ignored, and n8n builds the data from the requested type's fields.
+		if (getManagedCredentialType()) {
+			if (requestedType !== type) rememberManagedRequest(node, requestedType);
+			let properties: INodeProperties[] = [];
+			try {
+				properties = additionalData.credentialsHelper.getCredentialsProperties(requestedType);
+			} catch {}
+			return fillManagedPlaceholders(properties, {}) as T;
+		}
 
 		// Eval bypass: only mock when the node is fully unconfigured, so nodes
 		// probing multiple auth types still get production's throw. Handler

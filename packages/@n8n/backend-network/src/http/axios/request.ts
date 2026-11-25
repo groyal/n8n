@@ -26,6 +26,7 @@ import {
 } from './utils';
 import type { SsrfBridge } from '../../ssrf';
 import type { NodeAgents } from '../node-agents';
+import { applySpikeEgressRewrite } from '../spike-egress';
 
 export function convertN8nRequestToAxios(
 	n8nRequest: IHttpRequestOptions,
@@ -223,6 +224,7 @@ async function sendHttpRequest(
 	}
 
 	throwIfDomainNotAllowed(axiosRequest, requestOptions.allowedDomains);
+	applySpikeEgressRewrite(axiosRequest);
 
 	const result = shouldFollowRedirectsManually(axiosRequest, requestOptions.proxy, ssrfBridge)
 		? await followSsrfRedirects(axiosRequest, {
