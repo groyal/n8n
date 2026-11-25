@@ -16,7 +16,7 @@ function page() {
 		.reverse()
 		.map(
 			(r) => `<tr><td>${escape(r.at.slice(11, 19))}</td><td>${escape(r.method)}</td>
-<td>${escape(r.originalHost)}${escape(r.url)}</td><td class="${r.ordID ? 'ok' : 'bad'}">${escape(r.ordID ?? 'missing')}</td>
+<td>${escape(r.originalHost)}${escape(r.url)}</td><td>${escape(r.ordID ?? 'none')}</td>
 <td class="${r.authorization ? 'bad' : 'ok'}">${escape(r.authorization ?? 'none')}</td></tr>`,
 		)
 		.join('');
@@ -24,7 +24,7 @@ function page() {
 <style>body{font:14px system-ui;margin:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px;text-align:left;word-break:break-all}
 .ok{color:#137333}.bad{color:#c5221f;font-weight:600}</style>
 <h1>Requests that left n8n</h1>
-<p>Expected: every request has an <code>ordID</code> and no <code>Authorization</code> header. Refreshes every 2 s.
+<p>Expected (approach B): no <code>Authorization</code> header and no <code>ordID</code>. AGW maps each request itself. Refreshes every 2 s.
 <form method="post" action="/_mock/clear"><button>Clear</button></form></p>
 <table><tr><th>Time</th><th>Method</th><th>Original target</th><th>ordID</th><th>Authorization</th></tr>${rows}</table>`;
 }

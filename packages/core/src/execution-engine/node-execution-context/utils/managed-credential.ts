@@ -15,58 +15,14 @@ export function resolveManagedCredentialType(_node: INode, requestedType: string
 	return getManagedCredentialType() ?? requestedType;
 }
 
-// SPIKE (API-663): fixed ORD ID per credential type (or node type for shared types).
-// The node never sees it; it is added to the request only when the managed type stands in.
-function getOrdIdMap(): Record<string, string> {
-	try {
-		return JSON.parse(process.env.N8N_SPIKE_ORD_ID_MAP ?? '{}') as Record<string, string>;
-	} catch {
-		return {};
-	}
-}
-
-export function addManagedOrdId<T extends { headers?: object }>(
-	node: INode,
-	requestedType: string,
-	resolvedType: string,
-	requestOptions: T,
-): T {
-	if (resolvedType === requestedType) return requestOptions;
-	return withOrdId(node, requestedType, requestOptions);
-}
-
-function withOrdId<T extends { headers?: object }>(
-	node: INode,
-	requestedType: string,
-	requestOptions: T,
-): T {
-	const map = getOrdIdMap();
-	const ordId = map[requestedType] ?? map[node.type];
-	if (!ordId) return requestOptions;
-	return { ...requestOptions, headers: { ...requestOptions.headers, ordID: ordId } };
-}
-
-// Nodes that read credentials and then send with plain `httpRequest`/`request` never pass
-// a type to the helper, so remember which type the node asked for.
-const requestedTypeByNode = new WeakMap<INode, string>();
-
-export function rememberManagedRequest(node: INode, requestedType: string): void {
-	requestedTypeByNode.set(node, requestedType);
-}
-
-export function addRememberedOrdId<T extends { headers?: object }>(node: INode, options: T): T {
-	const requestedType = requestedTypeByNode.get(node);
-	return requestedType ? withOrdId(node, requestedType, options) : options;
-}
-
 const PLACEHOLDER_URL = 'https://sap-managed.example.com';
 const PLACEHOLDER_TEXT = 'sap-managed';
 const URL_LIKE_FIELD = /url|domain|host|endpoint|server|instance/i;
 
 /**
  * Nodes read config fields (Jira `domain`, Zendesk `subdomain`) from their own type.
- * Give them the type's defaults, else the field's UI example, else a placeholder. AGW finds the real target from the
- * ORD ID, so the placeholder host never leaves SAP's network.
+ * Give them the type's defaults, else the field's UI example, else a placeholder. AGW maps the
+ * request to the customer's real system, so the placeholder host never leaves SAP's network.
  */
 export function fillManagedPlaceholders(
 	properties: INodeProperties[],

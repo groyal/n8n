@@ -1,4 +1,4 @@
-# API-663 spike: one "Managed by SAP" credential for every node
+# API-663 spike, approach B: fully authless
 
 Spike code only. Do not merge. Context and findings: see the Notion page linked in
 [API-663](https://linear.app/n8n/issue/API-663).
@@ -8,8 +8,11 @@ Spike code only. Do not merge. Context and findings: see the Notion page linked 
 In managed mode, n8n holds no secret and stores no credential. Every node's credential
 field shows "Managed by SAP" as a fixed, disabled value. At run time n8n builds that
 credential from the node's own credential type: secret fields stay empty, and address
-fields get a stand-in value. Each request leaves n8n with an `ordID` header and no secret.
-SAP's Agent Gateway (AGW) adds the real secret. A local mock stands in for AGW.
+fields get a stand-in value. Each request leaves n8n with no secret and no ORD ID. SAP's
+Agent Gateway (AGW) maps the request to its ORD ID and adds the real secret. A local mock
+stands in for AGW.
+
+Approach A (n8n sends the ORD ID) is on branch `api-663-approach-a-ord-id`.
 
 The pattern follows the AI Gateway "Gateway credits" option, which also gives a node a
 credential that has no stored record.
@@ -21,7 +24,6 @@ credential that has no stored record.
 | `N8N_MANAGED_CREDENTIAL_TYPE=sapManagedApi` | Turns managed mode on. When unset, n8n works as today |
 | `custom/SapManagedApi.credentials.js` | The credential type, loaded from a folder like a custom node (`N8N_CUSTOM_EXTENSIONS`). `systemManaged: true` tells the editor to show it as a disabled value |
 | Node credential lists | The editor sees `sapManagedApi` as the only credential of every node (except HTTP Request). The server keeps each node's real list, so n8n still knows which type a node asks for |
-| `N8N_SPIKE_ORD_ID_MAP` | Fixed ORD ID per credential type. Stands in for UMS |
 | `N8N_SPIKE_EGRESS_URL` | Sends every outbound request to the mock. Stands in for SAP's proxy |
 
 ## Start
@@ -59,13 +61,12 @@ the owner in the UI).
 | # | Do this | Expect |
 |---|---|---|
 | 1 | New workflow. Add **Slack → Send a message**, channel ID `C0123456789`, text `hello` | The Credential field shows **Managed by SAP**, disabled. No warning |
-| 2 | Click **Execute workflow** | Success. The mock shows `POST slack.com/api/chat.postMessage`, `ordID = …SLACK:v1`, Authorization `none` |
+| 2 | Click **Execute workflow** | Success. The mock shows `POST slack.com/api/chat.postMessage`, ordID `none`, Authorization `none` |
 | 3 | Open **Credentials** | The list is empty. No credential was stored |
 | 4 | Add **Google Sheets** | Authentication offers **OAuth2** only. The credential shows Managed by SAP, disabled |
 | 5 | Add **HTTP Request**. Authentication = **Predefined Credential Type** | The type list has only **Managed by SAP**. The credential is disabled |
-| 6 | In that node, add header `ordID` = `customer.acme:apiResource:ACME_ITEMS:v1`, URL `https://api.example.com/items`, run | The mock shows that ORD ID. It came from the workflow, not from n8n |
-| 7 | Add **Acme Community** (the test community node), run | `POST api.acme-community.dev/search`, `ordID = …ACME_COMMUNITY:v1` |
-| 8 | Add a **Schedule Trigger** before Slack and **Publish** | Publishing succeeds, although no node has a stored credential |
+| 6 | Add **Acme Community** (the test community node), run | `POST api.acme-community.dev/search`, no ordID, no Authorization |
+| 7 | Add a **Schedule Trigger** before Slack and **Publish** | Publishing succeeds, although no node has a stored credential |
 
 Things to try that must fail:
 
@@ -86,9 +87,9 @@ Things to try that must fail:
 
 | File | Change |
 |---|---|
-| `packages/core/.../utils/managed-credential.ts` | Builds the credential data, fixed ORD ID |
+| `packages/core/.../utils/managed-credential.ts` | Builds the credential data |
 | `packages/core/.../node-execution-context.ts` | In managed mode, `_getCredentials` builds the data and reads no record |
-| `packages/core/.../request-helpers/factory.ts` | Auth helpers and OAuth paths use the managed type and add the ORD ID |
+| `packages/core/.../request-helpers/factory.ts` | Auth helpers and OAuth paths use the managed type, which adds nothing |
 | `packages/cli/src/spike-managed-credential-types.ts` | Editor sees only the managed type; nothing can be saved |
 | `packages/cli/src/workflows/workflow-validation.service.ts` | Publish skips the credential check in managed mode |
 | `packages/frontend/editor-ui/.../NodeCredentials.vue`, `useNodeHelpers.ts` | Disabled "Managed by SAP" field, no "missing credential" warning |

@@ -22,11 +22,7 @@ import type {
 import { callEvalMockHandler, normalizeLegacyRequest } from '@/execution-engine/eval-mock-helpers';
 
 import { getNonWorkflowAdditionalKeys } from '../get-additional-keys';
-import {
-	addManagedOrdId,
-	addRememberedOrdId,
-	resolveManagedCredentialType,
-} from '../managed-credential';
+import { resolveManagedCredentialType } from '../managed-credential';
 import { httpRequestWithAuthentication, requestWithAuthentication } from './authentication';
 import { proxyRequestToAxios } from './legacy-request-adapter';
 import { refreshOAuth2Token, requestOAuth1, requestOAuth2 } from './oauth';
@@ -91,7 +87,7 @@ export const getRequestHelperFunctions = (
 				);
 				if (evalMockResponse !== undefined) return evalMockResponse;
 			}
-			return await sendHttpRequest(addRememberedOrdId(node, requestOptions), additionalData, node);
+			return await sendHttpRequest(requestOptions, additionalData, node);
 		},
 		getSecureEgressFilter: (useDefaultSsrfPolicy) =>
 			Container.get(OutboundHttp).egressFilter(useDefaultSsrfPolicy),
@@ -128,7 +124,7 @@ export const getRequestHelperFunctions = (
 			return await httpRequestWithAuthentication.call(
 				this,
 				resolvedType,
-				addManagedOrdId(node, credentialsType, resolvedType, requestOptions),
+				requestOptions,
 				workflow,
 				node,
 				additionalData,
@@ -154,7 +150,7 @@ export const getRequestHelperFunctions = (
 			const uriOrObject =
 				typeof uriOrObjectWithTarget === 'string'
 					? uriOrObjectWithTarget
-					: addRememberedOrdId(node, toLegacyRequestOptions(uriOrObjectWithTarget));
+					: toLegacyRequestOptions(uriOrObjectWithTarget);
 			const options = optionsWithTarget && toLegacyRequestOptions(optionsWithTarget);
 			if (evalLlmMock) {
 				const wantsFull = typeof uriOrObject !== 'string' && uriOrObject.resolveWithFullResponse;
@@ -185,7 +181,7 @@ export const getRequestHelperFunctions = (
 			return await requestWithAuthentication.call(
 				this,
 				resolvedType,
-				addManagedOrdId(node, credentialsType, resolvedType, requestOptions),
+				requestOptions,
 				workflow,
 				node,
 				additionalData,
@@ -218,7 +214,7 @@ export const getRequestHelperFunctions = (
 				return await requestWithAuthentication.call(
 					this,
 					resolvedOAuth1Type,
-					addManagedOrdId(node, credentialsType, resolvedOAuth1Type, requestOptions),
+					requestOptions,
 					workflow,
 					node,
 					additionalData,
@@ -253,7 +249,7 @@ export const getRequestHelperFunctions = (
 				return await requestWithAuthentication.call(
 					this,
 					resolvedOAuth2Type,
-					addManagedOrdId(node, credentialsType, resolvedOAuth2Type, requestOptions),
+					requestOptions,
 					workflow,
 					node,
 					additionalData,

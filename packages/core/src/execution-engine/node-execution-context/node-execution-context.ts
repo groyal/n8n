@@ -52,7 +52,6 @@ import { getAdditionalKeys } from './utils/get-additional-keys';
 import {
 	fillManagedPlaceholders,
 	getManagedCredentialType,
-	rememberManagedRequest,
 	resolveManagedCredentialType,
 } from './utils/managed-credential';
 import { validateValueAgainstSchema } from './utils/validate-value-against-schema';
@@ -347,7 +346,6 @@ export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCr
 		// SPIKE (API-663): no credential is stored in managed mode. Whatever the node's slot
 		// holds is ignored, and n8n builds the data from the requested type's fields.
 		if (getManagedCredentialType()) {
-			if (requestedType !== type) rememberManagedRequest(node, requestedType);
 			let properties: INodeProperties[] = [];
 			try {
 				properties = additionalData.credentialsHelper.getCredentialsProperties(requestedType);

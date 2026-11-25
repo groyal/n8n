@@ -1,5 +1,6 @@
 // Automated end-to-end checks for the API-663 spike. Needs ./start.sh running.
 // Usage: node spike/api-663/check.mjs [filter]
+// Approach B: n8n stores no credential and sends no ORD ID. AGW maps each request itself.
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -91,10 +92,9 @@ const rl = (value) => ({ __rl: true, mode: 'id', value });
 const ord = (name, v = 'v1') => `sap.thirdparty:apiResource:${name}:${v}`;
 
 const cases = [
-	{ label: 'HTTP Request, ORD ID stored in the workflow', ordID: 'customer.acme:apiResource:ACME_ITEMS:v1',
+	{ label: 'HTTP Request (Managed by SAP)',
 		node: { type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, parameters: { url: 'https://api.example.com/items',
-			authentication: 'predefinedCredentialType', nodeCredentialType: MANAGED, sendHeaders: true, specifyHeaders: 'keypair',
-			headerParameters: { parameters: [{ name: 'ordID', value: 'customer.acme:apiResource:ACME_ITEMS:v1' }] } } } },
+			authentication: 'predefinedCredentialType', nodeCredentialType: MANAGED } } },
 	{ label: 'Slack (requestWithAuthentication)', ordID: ord('SLACK'),
 		node: { type: 'n8n-nodes-base.slack', typeVersion: 2.3, parameters: { authentication: 'accessToken', resource: 'message',
 			operation: 'post', select: 'channel', channelId: rl('C0123456789'), text: 'hello' } } },
@@ -165,9 +165,9 @@ for (const c of cases) {
 		continue;
 	}
 	const first = reqs[0];
-	const requestOk = first && first.ordID === c.ordID;
+	const requestOk = first && first.ordID === undefined;
 	const statusOk = c.requestOnly || r.status === 'success';
-	const detail = first ? `${first.method} ${first.originalHost}${first.url} ordID=${first.ordID ?? 'missing'} auth=${first.authorization ?? 'none'}` : 'no request';
+	const detail = first ? `${first.method} ${first.originalHost}${first.url} ordID=${first.ordID ?? 'none'} auth=${first.authorization ?? 'none'}` : 'no request';
 	if (!requestOk || !statusOk) record(area, c.label, 'FAIL', `${r.status}; ${detail}`);
 	else if (c.knownGap) record(area, c.label, 'KNOWN GAP', `${c.knownGap}; ${detail}`);
 	else if (c.agwNote) record(area, c.label, 'PASS', `${c.agwNote}; ${detail}`);

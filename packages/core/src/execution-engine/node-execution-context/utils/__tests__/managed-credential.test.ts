@@ -1,12 +1,6 @@
 import type { INode, INodeProperties } from 'n8n-workflow';
 
-import {
-	addManagedOrdId,
-	addRememberedOrdId,
-	fillManagedPlaceholders,
-	rememberManagedRequest,
-	resolveManagedCredentialType,
-} from '../managed-credential';
+import { fillManagedPlaceholders, resolveManagedCredentialType } from '../managed-credential';
 
 const node = (type = 'n8n-nodes-base.slack'): INode => ({
 	id: '1',
@@ -20,7 +14,6 @@ const node = (type = 'n8n-nodes-base.slack'): INode => ({
 describe('managed credential (spike)', () => {
 	afterEach(() => {
 		delete process.env.N8N_MANAGED_CREDENTIAL_TYPE;
-		delete process.env.N8N_SPIKE_ORD_ID_MAP;
 	});
 
 	describe('resolveManagedCredentialType', () => {
@@ -34,49 +27,6 @@ describe('managed credential (spike)', () => {
 			expect(resolveManagedCredentialType(node(), 'microsoftOutlookOAuth2Api')).toBe(
 				'sapManagedApi',
 			);
-		});
-	});
-
-	describe('addManagedOrdId', () => {
-		beforeEach(() => {
-			process.env.N8N_SPIKE_ORD_ID_MAP = JSON.stringify({ slackApi: 'sap:apiResource:SLACK:v1' });
-		});
-
-		it('adds the fixed ORD ID of the requested type', () => {
-			const options = addManagedOrdId(node(), 'slackApi', 'sapManagedApi', { headers: { a: '1' } });
-			expect(options.headers).toEqual({ a: '1', ordID: 'sap:apiResource:SLACK:v1' });
-		});
-
-		it('overrides an ordID header that the node set', () => {
-			const options = addManagedOrdId(node(), 'slackApi', 'sapManagedApi', {
-				headers: { ordID: 'typed' },
-			});
-			expect(options.headers).toEqual({ ordID: 'sap:apiResource:SLACK:v1' });
-		});
-
-		it('changes nothing when the type was not swapped', () => {
-			const options = { headers: { a: '1' } };
-			expect(addManagedOrdId(node(), 'slackApi', 'slackApi', options)).toBe(options);
-		});
-
-		it('changes nothing when the type has no ORD ID', () => {
-			const options = { headers: {} };
-			expect(addManagedOrdId(node(), 'unknownApi', 'sapManagedApi', options)).toBe(options);
-		});
-	});
-
-	describe('addRememberedOrdId', () => {
-		it('adds the ORD ID for plain requests after the node read its credential', () => {
-			process.env.N8N_SPIKE_ORD_ID_MAP = JSON.stringify({
-				telegramApi: 'sap:apiResource:TELEGRAM:v1',
-			});
-			const telegram = node('n8n-nodes-base.telegram');
-			expect(addRememberedOrdId(telegram, { headers: {} }).headers).toEqual({});
-
-			rememberManagedRequest(telegram, 'telegramApi');
-			expect(addRememberedOrdId(telegram, { headers: {} }).headers).toEqual({
-				ordID: 'sap:apiResource:TELEGRAM:v1',
-			});
 		});
 	});
 
