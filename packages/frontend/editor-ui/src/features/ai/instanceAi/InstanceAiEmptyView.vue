@@ -4,6 +4,7 @@ import ClaudeEntryPoint from '@/experiments/surfaceMcpToClaudeTrialUsers/McpDisc
 // EOF Experiment cleanup
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { chatTokensToPlainText } from '@n8n/utils/chat-tokens';
 import { useRoute, useRouter } from 'vue-router';
 import { useResizeObserver } from '@vueuse/core';
 import { v4 as uuidv4 } from 'uuid';
@@ -796,7 +797,8 @@ async function handleSubmit(
 			restoreDraftAfterFailedSubmit(restoreDraft);
 			return;
 		}
-		const pendingMessage = { agentId, text: message, files };
+		// An agent's chat does not read mention tokens, so it gets their labels.
+		const pendingMessage = { agentId, text: chatTokensToPlainText(message), files };
 		stashPendingN8nChatMessage(pendingMessage);
 		const failure = await router.push({ name: AGENT_N8N_CHAT_VIEW, params: { agentId } });
 		// A blocked or cancelled navigation must not leave the hand-off for a later
@@ -1028,6 +1030,7 @@ async function handleWorkflowPreviewExampleUse(
 						:is-workflow-builder-available="settingsStore.isWorkflowBuilderAvailable"
 						:mentions-enabled="mentionsEnabled"
 						:mention-project-id="selectedProject"
+						:inline-mentions="settingsStore.newThreadsUseAssistantAgent"
 						@submit="handleSubmit"
 						@content-change="composerHasContent = $event"
 					>
@@ -1113,6 +1116,7 @@ async function handleWorkflowPreviewExampleUse(
 						:is-workflow-builder-available="isComposerAvailable"
 						:mentions-enabled="inputMentionsEnabled"
 						:mention-project-id="selectedProject"
+						:inline-mentions="settingsStore.newThreadsUseAssistantAgent"
 						:placeholder="isAgentsN8nChatVariantB ? n8nChatPickerPlaceholder : undefined"
 						:attach-only-mime-types="composerAttachOnlyMimeTypes"
 						:accepted-mime-types="composerAcceptedMimeTypes"
