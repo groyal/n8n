@@ -962,6 +962,22 @@ it('rejects Agent content on import-selection while the Agents module is active'
 it.each([false, true])(
 	'imports standalone Skills with action scopes (refresh fails: %s)',
 	async (refreshFails) => {
+		if (refreshFails) {
+			await createSkill({
+				id: 'standalone',
+				projectId: null,
+				content: {
+					name: 'Standalone',
+					description: 'A guide',
+					instructions: 'Earlier instructions.',
+				},
+			});
+			await Container.get(AgentSkillRefsService).replaceDraftRefs(
+				sourceAgents[0],
+				[{ type: 'skill', id: 'standalone' }],
+				{},
+			);
+		}
 		const writer = new TarPackageWriter();
 		writer.writeFile(
 			'skills/standalone/skill.json',
@@ -986,23 +1002,27 @@ it.each([false, true])(
 		const reader = await createOwnerWithApiKey({ scopes: ['skill:read'] });
 		const denied = await upload(buffer, { projectId: '' }, reader);
 		expect(denied.statusCode).toBe(403);
-		const creator = await createOwnerWithApiKey({ scopes: ['skill:create'] });
+		const writerKey = await createOwnerWithApiKey({
+			scopes: [refreshFails ? 'skill:update' : 'skill:create'],
+		});
 		if (refreshFails)
 			vi.spyOn(Container.get(SkillService), 'refreshFollowingAgents').mockRejectedValueOnce(
 				new Error('Internal refresh failure'),
 			);
-		const created = await upload(buffer, { projectId: '' }, creator);
-		expect(created.statusCode).toBe(refreshFails ? 500 : 200);
+		const imported = await upload(buffer, { projectId: '' }, writerKey);
+		expect(imported.statusCode).toBe(refreshFails ? 500 : 200);
 		if (refreshFails) {
-			expect(ImportBlockedErrorDto.parse(created.body)).toMatchObject({
+			expect(ImportBlockedErrorDto.parse(imported.body)).toMatchObject({
 				message: 'Package import failed after Skill changes were saved.',
-				skills: [expect.objectContaining({ localId: 'standalone', status: 'created' })],
-				counts: { skills: { created: 1 } },
+				skills: [expect.objectContaining({ localId: 'standalone', status: 'updated' })],
+				counts: { skills: { updated: 1 } },
 			});
-		} else expect(ImportResultDto.parse(created.body).counts.skills?.created).toBe(1);
+		} else expect(ImportResultDto.parse(imported.body).counts.skills?.created).toBe(1);
 		const unchanged = await upload(buffer, { projectId: '' }, reader);
 		expect(unchanged.statusCode).toBe(200);
 		expect(unchanged.body.counts.skills.unchanged).toBe(1);
+		if (refreshFails)
+			await Container.get(AgentSkillRefsService).replaceDraftRefs(sourceAgents[0], [], {});
 		const remover = await createOwnerWithApiKey({ scopes: ['skill:delete'] });
 		const removed = await upload(
 			buffer,
