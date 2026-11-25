@@ -78,11 +78,12 @@ describe('spike managed credential types', () => {
 	});
 
 	describe('applyManagedCredentialToTypes', () => {
-		it('changes nothing when managed mode is off', () => {
+		it('only hides the managed credential type when managed mode is off', () => {
 			const t = types();
 			const before = structuredClone(t);
 			applyManagedCredentialToTypes(t);
-			expect(t).toEqual(before);
+			expect(t.nodes).toEqual(before.nodes);
+			expect(t.credentials.map((c) => c.name)).toEqual(['slackApi']);
 		});
 
 		describe('when managed mode is on', () => {

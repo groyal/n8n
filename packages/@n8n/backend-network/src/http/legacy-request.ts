@@ -25,7 +25,6 @@ import {
 } from './axios/utils';
 import { binaryToString } from './binary-string';
 import { parseIncomingMessage } from './parse-incoming-message';
-import { applySpikeEgressRewrite } from './spike-egress';
 
 export interface LegacyRequestCallbacks {
 	/**
@@ -87,7 +86,6 @@ async function sendLegacyRequest(
 		await buildAxiosConfigFromLegacyRequest(requestObject, ssrfBridge),
 	);
 	throwIfDomainNotAllowed(axiosConfig, requestObject.allowedDomains);
-	applySpikeEgressRewrite(axiosConfig);
 
 	try {
 		const response = shouldFollowRedirectsManually(axiosConfig, requestObject.proxy, ssrfBridge)
