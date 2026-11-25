@@ -12,6 +12,7 @@ import { createWorkflow, mockInstance, testDb } from '@n8n/backend-test-utils';
 import type { User } from '@n8n/db';
 import { Container } from '@n8n/di';
 import type { LifecycleEvent, StartExecutionRequest } from '@n8n/engine';
+import { sleep } from '@n8n/utils/sleep';
 import type { INode, IWorkflowExecutionDataProcess } from 'n8n-workflow';
 import { MANUAL_TRIGGER_NODE_TYPE, NodeConnectionTypes } from 'n8n-workflow';
 import { randomUUID } from 'node:crypto';
@@ -398,19 +399,59 @@ describe('waiting for the end of an engine v2 run', () => {
 				lifecycleEventSubscription: { kind: 'all' },
 			}),
 		);
-		expect(Container.get(EngineV2ExecutionCompletions).isWatching(executionId)).toBe(false);
+		expect(Container.get(EngineV2ExecutionWatches).isWatching(executionId)).toBe(false);
 	});
 
-	test('runs and resolves as waiting when the run reports a wait that the caller stops on', async () => {
+	test('runs and resolves as paused when the run waits for a request', async () => {
 		startRunsThatWait();
 		const { data } = await manualRunData();
 
 		const { executionId, outcome } = await Container.get(EngineV2RunService).runAndWait(data, {
 			timeoutMs: 5_000,
-			stopWhenWaiting: ({ awaitsRequest }) => awaitsRequest,
 		});
 
-		expect(outcome).toEqual({ kind: 'waiting', wait });
-		expect(Container.get(EngineV2ExecutionCompletions).isWatching(executionId)).toBe(false);
+		expect(outcome).toEqual({ kind: 'paused' });
+		expect(Container.get(EngineV2ExecutionWatches).isWatching(executionId)).toBe(false);
+	});
+
+	test('runs and waits through a short wait until the run ends', async () => {
+		let sendEnd: Promise<void> | undefined;
+		startExecution.mockImplementation(
+			async ({ executionId, workflowId }: StartExecutionRequest) => {
+				const [started] = runEvents(executionId, workflowId, 'set-id');
+				const lastDeadline = new Date(Date.parse(at) + 1_000).toISOString();
+				await lifecycleEventSender.send(
+					[
+						started,
+						{
+							type: 'execution:waiting',
+							executionId,
+							workflowId,
+							at,
+							awaitsRequest: false,
+							awaitsSubExecution: false,
+							lastDeadline,
+						},
+					],
+					new AbortController().signal,
+				);
+				sendEnd = sleep(50).then(
+					async () =>
+						await lifecycleEventSender.send(
+							[{ type: 'execution:completed', executionId, workflowId, at }],
+							new AbortController().signal,
+						),
+				);
+				return { executionId };
+			},
+		);
+		const { data } = await manualRunData();
+
+		const { outcome } = await Container.get(EngineV2RunService).runAndWait(data, {
+			timeoutMs: 5_000,
+		});
+		await sendEnd;
+
+		expect(outcome).toEqual({ kind: 'finished', status: 'success' });
 	});
 });

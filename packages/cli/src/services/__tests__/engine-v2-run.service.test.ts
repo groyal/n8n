@@ -4,10 +4,11 @@ import type { IWorkflowExecutionDataProcess } from 'n8n-workflow';
 import { mock } from 'vitest-mock-extended';
 
 import {
-	type EngineV2CompletionOutcome,
-	type EngineV2CompletionWatch,
-	EngineV2ExecutionCompletions,
-} from '@/modules/engine-v2/engine-v2-execution-completions';
+	type EngineV2ExecutionWait,
+	type EngineV2ExecutionWatch,
+	EngineV2ExecutionWatches,
+	type EngineV2WatchOutcome,
+} from '@/modules/engine-v2/engine-v2-execution-watches';
 import type { EngineDataPlaneProxyService } from '@/services/engine-data-plane-proxy.service';
 import type { EngineV2Dispatcher } from '@/services/engine-v2-dispatcher.service';
 import { EngineV2RunService } from '@/services/engine-v2-run.service';
@@ -19,22 +20,30 @@ const data = {
 } as IWorkflowExecutionDataProcess;
 const options = { timeoutMs: 1_000 };
 
+const at = '2026-11-24T10:00:00.000Z';
+const after = (ms: number) => new Date(Date.parse(at) + ms).toISOString();
+const waitingFor = (wait: Partial<EngineV2ExecutionWait>): EngineV2WatchOutcome => ({
+	kind: 'waiting',
+	wait: { at, awaitsRequest: false, awaitsSubExecution: false, ...wait },
+});
+
 describe('EngineV2RunService', () => {
 	const runner = mock<WorkflowRunner>();
 	const dispatcher = mock<EngineV2Dispatcher>();
 	const proxy = mock<EngineDataPlaneProxyService>();
-	const completions = mockInstance(EngineV2ExecutionCompletions);
-	const watch = mock<EngineV2CompletionWatch>();
+	const watches = mockInstance(EngineV2ExecutionWatches);
+	const watch = mock<EngineV2ExecutionWatch>();
 	const runs = new EngineV2RunService(runner, dispatcher, proxy);
 
 	/** The id the run got: the one `watch` was called with. */
-	const watchedId = () => completions.watch.mock.calls[0][0];
+	const watchedId = () => watches.watch.mock.calls[0][0];
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		watch.wait.mockReset();
 		dispatcher.routesToEngineV2.mockReturnValue(true);
 		proxy.isAvailable.mockReturnValue(true);
-		completions.watch.mockResolvedValue(watch);
+		watches.watch.mockResolvedValue(watch);
 		runner.run.mockImplementation(async ({ engineV2ExecutionId }) => engineV2ExecutionId ?? '');
 		watch.wait.mockResolvedValue({ kind: 'finished', status: 'success' });
 		proxy.cancelExecution.mockResolvedValue(undefined);
@@ -51,7 +60,7 @@ describe('EngineV2RunService', () => {
 		dispatcher.routesToEngineV2.mockReturnValue(false);
 
 		await expect(runs.runAndWait(data, options)).rejects.toThrow(UnexpectedError);
-		expect(completions.watch).not.toHaveBeenCalled();
+		expect(watches.watch).not.toHaveBeenCalled();
 		expect(runner.run).not.toHaveBeenCalled();
 	});
 
@@ -61,7 +70,7 @@ describe('EngineV2RunService', () => {
 		runner.run.mockRejectedValue(refusal);
 
 		await expect(runs.runAndWait(data, options)).rejects.toBe(refusal);
-		expect(completions.watch).not.toHaveBeenCalled();
+		expect(watches.watch).not.toHaveBeenCalled();
 		expect(runner.run).toHaveBeenCalledWith(data);
 		expect(proxy.cancelExecution).not.toHaveBeenCalled();
 	});
@@ -71,24 +80,20 @@ describe('EngineV2RunService', () => {
 		runner.run.mockResolvedValue('exec-1');
 
 		await expect(runs.runAndWait(data, options)).rejects.toThrow(UnexpectedError);
-		expect(completions.watch).not.toHaveBeenCalled();
+		expect(watches.watch).not.toHaveBeenCalled();
 	});
 
 	it('watches the execution before it starts the run under the same id', async () => {
 		await runs.runAndWait(data, options);
 
-		expect(completions.watch.mock.invocationCallOrder[0]).toBeLessThan(
+		expect(watches.watch.mock.invocationCallOrder[0]).toBeLessThan(
 			runner.run.mock.invocationCallOrder[0],
 		);
 		expect(runner.run).toHaveBeenCalledWith({ ...data, engineV2ExecutionId: watchedId() });
 	});
 
-	it.each<EngineV2CompletionOutcome>([
+	it.each<EngineV2WatchOutcome>([
 		{ kind: 'finished', status: 'error' },
-		{
-			kind: 'waiting',
-			wait: { at: '2026-11-24T10:00:00.000Z', awaitsRequest: true, awaitsSubExecution: false },
-		},
 		{ kind: 'timeout' },
 		{ kind: 'aborted' },
 	])('returns the id and the outcome $kind of the wait', async (outcome) => {
@@ -100,16 +105,62 @@ describe('EngineV2RunService', () => {
 		expect(proxy.cancelExecution).not.toHaveBeenCalled();
 	});
 
-	it('passes the timeout, the abort signal and the wait predicate to the wait', async () => {
-		const waitOptions = {
-			timeoutMs: 42,
-			abortSignal: new AbortController().signal,
-			stopWhenWaiting: () => true,
-		};
+	describe('when the run starts to wait', () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
 
-		await runs.runAndWait(data, waitOptions);
+		afterEach(() => {
+			vi.useRealTimers();
+		});
 
-		expect(watch.wait).toHaveBeenCalledWith(waitOptions);
+		it.each<[string, Partial<EngineV2ExecutionWait>]>([
+			['a request', { awaitsRequest: true }],
+			['a request with a short deadline', { awaitsRequest: true, lastDeadline: after(1) }],
+			['a deadline at the timeout', { lastDeadline: after(options.timeoutMs) }],
+			[
+				'a sub-execution with a deadline after the timeout',
+				{ awaitsSubExecution: true, lastDeadline: after(10 * options.timeoutMs) },
+			],
+		])('returns paused when the run waits for %s', async (_name, wait) => {
+			watch.wait.mockResolvedValueOnce(waitingFor(wait));
+
+			const result = await runs.runAndWait(data, options);
+
+			expect(result).toEqual({ executionId: watchedId(), outcome: { kind: 'paused' } });
+			expect(watch.wait).toHaveBeenCalledTimes(1);
+			expect(watch.stop).toHaveBeenCalledTimes(1);
+		});
+
+		it.each<[string, Partial<EngineV2ExecutionWait>]>([
+			['a deadline before the timeout', { lastDeadline: after(options.timeoutMs - 1) }],
+			['a sub-execution only', { awaitsSubExecution: true }],
+		])('keeps waiting when the run waits for %s, and returns its end', async (_name, wait) => {
+			watch.wait
+				.mockResolvedValueOnce(waitingFor(wait))
+				.mockResolvedValueOnce({ kind: 'finished', status: 'success' });
+
+			const result = await runs.runAndWait(data, options);
+
+			expect(result.outcome).toEqual({ kind: 'finished', status: 'success' });
+			expect(watch.wait).toHaveBeenCalledTimes(2);
+		});
+
+		it('passes the abort signal to each wait, and only the time that is left to the next wait', async () => {
+			const abortSignal = new AbortController().signal;
+			watch.wait
+				.mockImplementationOnce(async () => {
+					vi.advanceTimersByTime(400);
+					return waitingFor({ lastDeadline: after(100) });
+				})
+				.mockResolvedValueOnce({ kind: 'timeout' });
+
+			const result = await runs.runAndWait(data, { timeoutMs: 1_000, abortSignal });
+
+			expect(result.outcome).toEqual({ kind: 'timeout' });
+			expect(watch.wait).toHaveBeenNthCalledWith(1, { timeoutMs: 1_000, abortSignal });
+			expect(watch.wait).toHaveBeenNthCalledWith(2, { timeoutMs: 600, abortSignal });
+		});
 	});
 
 	it('stops the watch after the wait ends', async () => {
@@ -142,7 +193,7 @@ describe('EngineV2RunService', () => {
 
 	it('starts no run when the watch fails', async () => {
 		const failure = new Error('no subscription');
-		completions.watch.mockRejectedValue(failure);
+		watches.watch.mockRejectedValue(failure);
 
 		await expect(runs.runAndWait(data, options)).rejects.toBe(failure);
 		expect(runner.run).not.toHaveBeenCalled();

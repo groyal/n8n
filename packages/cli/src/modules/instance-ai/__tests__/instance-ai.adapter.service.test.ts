@@ -89,9 +89,8 @@ import { EngineV2ExecutionReader } from '@/executions/engine-v2-execution-reader
 import type { ExecutionIdV2 } from '@/executions/execution-id';
 import { ExecutionListService } from '@/executions/execution-list.service';
 import type { ExecutionPersistence } from '@/executions/execution-persistence';
-import type { EngineV2CompletionOutcome } from '@/modules/engine-v2/engine-v2-execution-completions';
 import { EngineDataPlaneProxyService } from '@/services/engine-data-plane-proxy.service';
-import { EngineV2RunService } from '@/services/engine-v2-run.service';
+import { EngineV2RunService, type EngineV2RunOutcome } from '@/services/engine-v2-run.service';
 import { CredentialsPermissionChecker } from '@/executions/pre-execution-checks';
 import type { NodeCatalogService } from '@/node-catalog';
 import { pairAiGatewayServers } from '@/modules/mcp-registry/registry/mcp-registry-ai-gateway';
@@ -104,7 +103,7 @@ import {
 
 import { InstanceAiMcpRegistryService } from '../mcp';
 import type { InstanceContextService } from '../instance-context.service';
-import { ENGINE_V2_CALL_TIMEOUT_MS, isEngineV2RunPaused } from '../instance-ai-execution-wait';
+import { ENGINE_V2_CALL_TIMEOUT_MS } from '../instance-ai-execution-wait';
 
 import {
 	extractExecutionResult,
@@ -7990,10 +7989,7 @@ describe('createExecutionAdapter on engine v2', () => {
 		},
 	};
 
-	const pausedOutcome: EngineV2CompletionOutcome = {
-		kind: 'waiting',
-		wait: { at: '2026-11-24T10:00:00.000Z', awaitsRequest: true, awaitsSubExecution: false },
-	};
+	const pausedOutcome: EngineV2RunOutcome = { kind: 'paused' };
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -8008,7 +8004,7 @@ describe('createExecutionAdapter on engine v2', () => {
 		statuses?: string[];
 		execution?: ReturnType<typeof makeExecution>;
 		readable?: boolean;
-		outcome?: EngineV2CompletionOutcome;
+		outcome?: EngineV2RunOutcome;
 	}) {
 		const harness = createRunAdapterForTests(v2Workflow, {
 			execution: makeExecution({ status: 'success' }),
@@ -8089,7 +8085,6 @@ describe('createExecutionAdapter on engine v2', () => {
 			expect(engineV2Runs.runAndWait).toHaveBeenCalledWith(expect.anything(), {
 				timeoutMs: 300,
 				abortSignal: undefined,
-				stopWhenWaiting: isEngineV2RunPaused,
 			});
 			// Only the read of the result, no status read.
 			expect(reader.findOne).toHaveBeenCalledTimes(1);

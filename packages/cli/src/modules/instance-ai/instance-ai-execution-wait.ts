@@ -1,12 +1,7 @@
 import { sleep } from '@n8n/utils/sleep';
-import {
-	MAX_IN_PROCESS_WAIT_MS,
-	ManualExecutionCancelledError,
-	TimeoutExecutionCancelledError,
-} from 'n8n-workflow';
+import { ManualExecutionCancelledError, TimeoutExecutionCancelledError } from 'n8n-workflow';
 
 import type { ActiveExecutions } from '@/active-executions';
-import type { EngineV2ExecutionWait } from '@/modules/engine-v2/engine-v2-execution-completions';
 
 /**
  * Waits for an instance-AI execution, with a timeout and an abort signal.
@@ -104,20 +99,6 @@ export const ENGINE_V2_POLL_INTERVAL_MS = 250;
  * not hold up a tool call.
  */
 export const ENGINE_V2_CALL_TIMEOUT_MS = 5_000;
-
-/**
- * Whether the Assistant treats a waiting engine v2 run as paused. A run that
- * accepts a resume request is paused. A run that only a deadline can end is
- * paused when v1 would suspend that wait instead of sleeping in the process.
- * A run that waits only for a sub-workflow is not paused.
- */
-export function isEngineV2RunPaused(wait: EngineV2ExecutionWait): boolean {
-	if (wait.awaitsRequest) return true;
-	if (wait.lastDeadline === undefined) return false;
-
-	// Both times come from the data plane, not from this process.
-	return Date.parse(wait.lastDeadline) - Date.parse(wait.at) >= MAX_IN_PROCESS_WAIT_MS;
-}
 
 /**
  * Whether an engine v2 execution can still change, by its v1 status. A waiting
