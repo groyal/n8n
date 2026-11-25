@@ -67,8 +67,9 @@ Do not copy the new `1.x` runtime pin into this input.
   pin the new digest. Set `targets` to build only some bases, so the tags of
   the other bases stay on their digests.
 - `sec-base-image-refresh.yml` dispatches `build-base-image.yml` for a base
-  when a package that the base installs has a fix, and pins the rebuilt base
-  24 hours later.
+  when a package that the base installs has a fix. If the rebuilt base has
+  fewer findings, it pins the base 24 hours later (a manual run does not
+  wait). Otherwise, it sends an alert.
 
 The `node-patched-26` target uses the same Node version and runtime base as
 `node-pc`, with pointer compression off. The workflow publishes runtime and

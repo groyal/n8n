@@ -171,8 +171,13 @@ export async function planTarget(spec, { hcl, results, entry, tried, now, skipGa
 				deps.scan(`${pin.repository}@${digest}`, platform),
 			),
 		}));
-		if (!platforms.some((platform) => platform.removed.length > 0)) {
-			return giveUp(`the rebuild of \`n8nio/base\` removed no finding (${link}).`, 'no effect');
+		// The findings must go down: no platform gains more than it loses, and one loses more.
+		const net = (platform) => platform.removed.length - platform.added.length;
+		if (!platforms.every((platform) => net(platform) >= 0) || !platforms.some((p) => net(p) > 0)) {
+			return giveUp(
+				`the rebuild of \`n8nio/base\` did not reduce the findings (${link}).`,
+				'no effect',
+			);
 		}
 		entry = {
 			...entry,

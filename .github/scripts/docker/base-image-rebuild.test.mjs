@@ -34,10 +34,10 @@ const openssh = finding('CVE-1', 'openssh-client-common', '10.3_p1-r2');
 const tiff = finding('CVE-2', 'tiff', '4.7.2-r0');
 const zlib = finding('CVE-3', 'zlib');
 
-const dhi = (status = 'no-upstream-fix', remaining = [zlib]) => ({
-	source: 'DHI_REF',
+const dhi = (status = 'no-upstream-fix', remaining = [zlib], source = 'DHI_REF') => ({
+	source,
 	status,
-	pinned: dhiPin.ref,
+	pinned: readPin(hcl, source).ref,
 	platforms: ['linux/amd64', 'linux/arm64'].map((platform) => ({
 		platform,
 		removed: [],
@@ -47,7 +47,7 @@ const dhi = (status = 'no-upstream-fix', remaining = [zlib]) => ({
 	})),
 });
 
-/** Fake lookups: each scan returns the findings of its ref. */
+/** Fake lookups: each scan returns the findings of its ref, for all platforms or by platform. */
 const fakes = (overrides = {}) => {
 	const calls = { available: [] };
 	const scans = {
@@ -58,10 +58,14 @@ const fakes = (overrides = {}) => {
 	return {
 		calls,
 		deps: {
-			scan: (ref) => ({ findings: scans[ref], packages: [] }),
+			scan: (ref, platform) => {
+				const found = scans[ref];
+				return { findings: Array.isArray(found) ? found : found[platform], packages: [] };
+			},
 			available: (distro, ref, platform, findings) => {
 				calls.available.push({ distro, ref, platform, pkgs: findings.map((f) => f.pkg) });
-				return overrides.available ?? new Set(['openssh-client-common']);
+				const fixed = overrides.available ?? new Set(['openssh-client-common']);
+				return typeof fixed === 'function' ? fixed(platform) : fixed;
 			},
 			findRun: async () => overrides.run ?? null,
 			bakeFileAt: async () => overrides.bake ?? hcl,
@@ -71,8 +75,10 @@ const fakes = (overrides = {}) => {
 	};
 };
 
-const plan = (deps, { entry, tried, results = [dhi()], skipGate = false, at = now } = {}) =>
-	planTarget(base, { hcl, results, entry, tried, now: at, skipGate, deps });
+const plan = (
+	deps,
+	{ entry, tried, results = [dhi()], skipGate = false, at = now, spec = base } = {},
+) => planTarget(spec, { hcl, results, entry, tried, now: at, skipGate, deps });
 
 describe('sourceKeys', () => {
 	it('gives the findings of the pinned DHI image, not those of the newest digest', () => {
@@ -116,6 +122,42 @@ describe('planTarget: find a rebuild', () => {
 			platform: 'linux/amd64',
 			pkgs: ['openssh-client-common', 'tiff'],
 		});
+		assert.deepEqual(
+			calls.available.map((call) => call.platform),
+			['linux/amd64', 'linux/arm64'],
+		);
+	});
+
+	it('rebuilds for a finding that only one platform has a fix for', async () => {
+		const { deps, calls } = fakes({
+			scans: { [pinnedBase]: { 'linux/amd64': [zlib], 'linux/arm64': [openssh, zlib] } },
+			available: (platform) =>
+				platform === 'linux/arm64' ? new Set(['openssh-client-common']) : new Set(),
+		});
+		const result = await plan(deps);
+		assert.equal(result.dispatch, true);
+		assert.deepEqual(result.entry.findings[0].platforms, ['linux/arm64']);
+		assert.deepEqual(
+			calls.available.map((call) => `${call.platform}: ${call.pkgs.join(',')}`),
+			['linux/amd64: ', 'linux/arm64: openssh-client-common'],
+		);
+	});
+
+	it('checks the Debian base with the Debian DHI image', async () => {
+		const debian = TARGETS.find((spec) => spec.target === 'base-debian');
+		const debianPin = readPin(hcl, 'DEBIAN_RUNTIME_IMAGE');
+		const client = finding('CVE-6', 'openssh-client', '1:10.0p1-7+deb13u4');
+		const { deps, calls } = fakes({
+			scans: { [`${debianPin.repository}@${debianPin.digest}`]: [client, zlib] },
+			available: new Set(['openssh-client']),
+		});
+		const results = [dhi(), dhi('no-upstream-fix', [zlib], 'DEBIAN_DHI_REF')];
+		const result = await plan(deps, { spec: debian, results });
+		assert.equal(result.dispatch, true);
+		assert.equal(result.entry.pinned, debianPin.ref);
+		assert.deepEqual(result.entry.keys, ['CVE-6 openssh-client']);
+		assert.equal(calls.available[0].distro, 'debian');
+		assert.equal(calls.available[0].ref, readPin(hcl, 'DEBIAN_DHI_REF').ref);
 	});
 
 	it('does not rebuild when the DHI repository has no fix yet', async () => {
@@ -213,8 +255,32 @@ describe('planTarget: follow a rebuild', () => {
 	it('alerts when the rebuilt base removes no finding', async () => {
 		const { deps } = fakes({ run: run(), scans: { [rebuiltBase]: [openssh, tiff, zlib] } });
 		const result = await plan(deps, { entry: pending() });
-		assert.match(result.events[0], /removed no finding/);
+		assert.match(result.events[0], /did not reduce the findings/);
 		assert.equal(result.entry, undefined);
+	});
+
+	it('alerts when the rebuilt base adds more findings than it removes', async () => {
+		const added = [finding('CVE-4', 'libpng'), finding('CVE-5', 'freetype')];
+		const { deps } = fakes({ run: run(), scans: { [rebuiltBase]: [tiff, zlib, ...added] } });
+		const result = await plan(deps, { entry: pending() });
+		assert.match(result.events[0], /did not reduce the findings/);
+		assert.equal(result.change, undefined);
+	});
+
+	it('pins the Debian base from its own tag', async () => {
+		const debian = TARGETS.find((spec) => spec.target === 'base-debian');
+		const debianPin = readPin(hcl, 'DEBIAN_RUNTIME_IMAGE');
+		const { deps } = fakes({
+			run: run(),
+			scans: { [`${debianPin.repository}@${debianPin.digest}`]: [openssh, zlib] },
+		});
+		const result = await plan(deps, {
+			spec: debian,
+			entry: pending({ pinned: debianPin.ref }),
+			at: now + DAY,
+		});
+		assert.equal(result.change.source, 'DEBIAN_RUNTIME_IMAGE');
+		assert.match(result.change.newest, new RegExp(`^n8nio/base:[0-9.]+-debian-${sha}@`));
 	});
 
 	it('keeps the rebuilt base in the 24-hour gate, then pins it', async () => {
