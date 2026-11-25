@@ -363,7 +363,7 @@ describe('waiting for the end of an engine v2 run', () => {
 			},
 		);
 
-	test('resolves the wait of a run as waiting when the run reports a wait that the caller stops on', async () => {
+	test('resolves the wait of a run as waiting when the run starts to wait', async () => {
 		startRunsThatWait();
 		const executionId = createExecutionIdV2();
 		const watch = await Container.get(EngineV2ExecutionWatches).watch(executionId);
@@ -371,8 +371,6 @@ describe('waiting for the end of an engine v2 run', () => {
 
 		await manualRun(undefined, executionId);
 
-		await expect(
-			watch.wait({ timeoutMs: 5_000, stopWhenWaiting: ({ awaitsRequest }) => awaitsRequest }),
-		).resolves.toEqual({ kind: 'waiting', wait });
+		await expect(watch.wait({ timeoutMs: 5_000 })).resolves.toEqual({ kind: 'waiting', wait });
 	});
 });

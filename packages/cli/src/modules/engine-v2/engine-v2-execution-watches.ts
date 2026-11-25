@@ -8,7 +8,7 @@ import { EngineV2LifecycleSubscriptions } from './engine-lifecycle-event-subscri
 
 type ExecutionWaitingEvent = Extract<LifecycleEvent, { type: 'execution:waiting' }>;
 
-/** What a paused execution waits for, as its `execution:waiting` event reports it. */
+/** What a waiting execution waits for, as its `execution:waiting` event reports it. */
 export type EngineV2ExecutionWait = Omit<
 	ExecutionWaitingEvent,
 	'type' | 'executionId' | 'workflowId'
@@ -23,26 +23,15 @@ export type EngineV2WatchOutcome =
 export type EngineV2WatchWaitOptions = {
 	timeoutMs: number;
 	abortSignal?: AbortSignal;
-	/**
-	 * Called for each wait the execution reports. Return true to end this `wait`
-	 * call with `waiting`. Without it, a wait never ends the call. A predicate
-	 * that throws counts as false.
-	 *
-	 * Each wait is offered once: to the calls pending when it arrives, or to the
-	 * next call if none is pending. A call that does not accept it does not keep
-	 * it for later calls.
-	 */
-	stopWhenWaiting?: (wait: EngineV2ExecutionWait) => boolean;
 };
 
 const MAX_WAIT_TIMEOUT_MS = Time.days.toMilliseconds;
 
 export interface EngineV2ExecutionWatch {
 	/**
-	 * Resolves when the execution ends, the time runs out, the signal aborts, the
-	 * watch stops, or `stopWhenWaiting` accepts a wait. Does not stop the watch or
-	 * cancel the run. `timeoutMs` is required: delivery is best effort, so the end
-	 * event can be lost.
+	 * Resolves when the execution ends or starts to wait, the time runs out, the
+	 * signal aborts, or the watch stops. Does not stop the watch or cancel the run.
+	 * `timeoutMs` is required: delivery is best effort, so the end event can be lost.
 	 *
 	 * @throws {UnexpectedError} If `timeoutMs` is more than 24 hours.
 	 */
@@ -57,33 +46,18 @@ const FINISHED_STATUS: Partial<Record<LifecycleEvent['type'], TerminalExecutionS
 	'execution:cancelled': 'canceled',
 };
 
-function accepts(
-	stopWhenWaiting: EngineV2WatchWaitOptions['stopWhenWaiting'],
-	wait: EngineV2ExecutionWait,
-): boolean {
-	try {
-		return stopWhenWaiting?.(wait) === true;
-	} catch {
-		return false;
-	}
-}
-
 class ExecutionWatch implements EngineV2ExecutionWatch {
 	private outcome?: EngineV2WatchOutcome;
 
 	/**
 	 * The latest wait that arrived while no `wait` call was pending. The next call
-	 * gets it first, unless a step starts before.
+	 * gets it, unless a step starts before.
 	 */
-	private unofferedWait?: EngineV2ExecutionWait;
+	private unreportedWait?: EngineV2ExecutionWait;
 
 	private removeListener?: () => void;
 
-	/** Each pending `wait` call, with its predicate. */
-	private readonly waiters = new Map<
-		(outcome: EngineV2WatchOutcome) => void,
-		EngineV2WatchWaitOptions['stopWhenWaiting']
-	>();
+	private readonly waiters = new Set<(outcome: EngineV2WatchOutcome) => void>();
 
 	constructor(private readonly onEnd: () => void) {}
 
@@ -99,17 +73,13 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
 			this.end({ kind: 'finished', status });
 		} else if (event.type === 'execution:waiting') {
 			const { type: _type, executionId: _executionId, workflowId: _workflowId, ...wait } = event;
-			this.offer(wait);
+			this.report(wait);
 		} else if (event.type === 'step:started') {
-			this.unofferedWait = undefined;
+			this.unreportedWait = undefined;
 		}
 	}
 
-	async wait({
-		timeoutMs,
-		abortSignal,
-		stopWhenWaiting,
-	}: EngineV2WatchWaitOptions): Promise<EngineV2WatchOutcome> {
+	async wait({ timeoutMs, abortSignal }: EngineV2WatchWaitOptions): Promise<EngineV2WatchOutcome> {
 		if (timeoutMs > MAX_WAIT_TIMEOUT_MS) {
 			throw new UnexpectedError('The wait timeout must not be more than 24 hours', {
 				extra: { timeoutMs },
@@ -118,12 +88,11 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
 		if (this.outcome) return this.outcome;
 		if (abortSignal?.aborted) return { kind: 'aborted' };
 
-		const wait = this.unofferedWait;
-		this.unofferedWait = undefined;
-		const accepted = wait !== undefined && accepts(stopWhenWaiting, wait);
-		// A predicate can call `stop()`.
-		if (this.outcome) return this.outcome;
-		if (accepted) return { kind: 'waiting', wait };
+		const wait = this.unreportedWait;
+		if (wait) {
+			this.unreportedWait = undefined;
+			return { kind: 'waiting', wait };
+		}
 
 		return await new Promise((resolve) => {
 			const settle = (outcome: EngineV2WatchOutcome) => {
@@ -135,7 +104,7 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
 			const onAbort = () => settle({ kind: 'aborted' });
 			const timer = setTimeout(() => settle({ kind: 'timeout' }), timeoutMs).unref();
 			abortSignal?.addEventListener('abort', onAbort, { once: true });
-			this.waiters.set(settle, stopWhenWaiting);
+			this.waiters.add(settle);
 		});
 	}
 
@@ -143,19 +112,15 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
 		this.end({ kind: 'aborted' });
 	}
 
-	private offer(wait: EngineV2ExecutionWait): void {
+	private report(wait: EngineV2ExecutionWait): void {
 		// Ignored after the end: events of different data-plane processes can arrive out of order.
 		if (this.outcome) return;
 		if (this.waiters.size === 0) {
-			this.unofferedWait = wait;
+			this.unreportedWait = wait;
 			return;
 		}
 
-		for (const [settle, stopWhenWaiting] of [...this.waiters]) {
-			// A predicate can call `stop()`, which settles every pending call.
-			if (this.outcome) return;
-			if (accepts(stopWhenWaiting, wait)) settle({ kind: 'waiting', wait });
-		}
+		for (const settle of [...this.waiters]) settle({ kind: 'waiting', wait });
 	}
 
 	private end(outcome: EngineV2WatchOutcome): void {
@@ -164,7 +129,7 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
 		this.outcome = outcome;
 		this.removeListener?.();
 		this.onEnd();
-		for (const settle of [...this.waiters.keys()]) settle(outcome);
+		for (const settle of [...this.waiters]) settle(outcome);
 	}
 }
 
@@ -183,9 +148,9 @@ class ExecutionWatch implements EngineV2ExecutionWatch {
  * }
  * ```
  *
- * A run that pauses for outside input, such as a form or a webhook wait, sends
- * no end event. Pass `stopWhenWaiting` to end a `wait` call with `waiting`
- * instead. The watch continues, so a later `wait` call can still see the end.
+ * When the execution starts to wait, each pending `wait` call ends with
+ * `waiting`. The caller decides if the wait is a pause. The watch continues, so
+ * a later `wait` call can still see the end.
  *
  * On `timeout` or `aborted`, the caller decides what to do with the run, and
  * reads the data plane for its status.

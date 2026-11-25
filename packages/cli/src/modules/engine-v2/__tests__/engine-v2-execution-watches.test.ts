@@ -11,7 +11,6 @@ import type {
 import {
 	EngineV2ExecutionWatches,
 	type EngineV2WatchOutcome,
-	type EngineV2ExecutionWatch,
 	type EngineV2ExecutionWait,
 } from '../engine-v2-execution-watches';
 
@@ -45,8 +44,6 @@ const stepFields = {
 	iteration: 0,
 	at,
 };
-
-const always = () => true;
 
 describe('EngineV2ExecutionWatches', () => {
 	const subscriptions = mock<EngineV2LifecycleSubscriptions>();
@@ -124,112 +121,53 @@ describe('EngineV2ExecutionWatches', () => {
 		await expect(outcome).resolves.toEqual({ kind: 'timeout' });
 	});
 
-	it.each<[string, ((wait: EngineV2ExecutionWait) => boolean) | undefined]>([
-		['rejects it', () => false],
-		[
-			'throws',
-			() => {
-				throw new Error('predicate failed');
-			},
-		],
-		['is not given', undefined],
-	])(
-		'keeps a wait call pending through a wait when its predicate %s, until the execution ends',
-		async (_name, stopWhenWaiting) => {
-			const watch = await watches.watch(executionId);
-			const outcome = watch.wait({ timeoutMs: 1_000, stopWhenWaiting });
+	it('reports a wait to each pending call, keeps it for no later call, and stays subscribed', async () => {
+		const watch = await watches.watch(executionId);
+		const pending = [watch.wait({ timeoutMs: 1_000 }), watch.wait({ timeoutMs: 1_000 })];
 
-			emit(waiting(requestWait));
-			emit(ended('execution:completed'));
+		emit(waiting(requestWait));
+		const later = watch.wait({ timeoutMs: 1_000 });
 
-			await expect(outcome).resolves.toEqual({ kind: 'finished', status: 'success' });
-		},
-	);
+		const waitingOutcome = { kind: 'waiting', wait: requestWait };
+		await expect(Promise.all(pending)).resolves.toEqual([waitingOutcome, waitingOutcome]);
+		expect(watches.isWatching(executionId)).toBe(true);
+		expect(remove).not.toHaveBeenCalled();
+		emit(ended('execution:failed'));
+		await expect(later).resolves.toEqual({ kind: 'finished', status: 'error' });
+	});
 
-	it('offers a wait that arrived before any wait call to the next call only', async () => {
+	it('reports a wait that arrived before any wait call to the next call only', async () => {
 		const watch = await watches.watch(executionId);
 		emit(waiting(requestWait));
 
-		await expect(watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always })).resolves.toEqual({
+		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
 			kind: 'waiting',
 			wait: requestWait,
 		});
-		const second = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
+		const second = watch.wait({ timeoutMs: 1_000 });
 		await vi.advanceTimersByTimeAsync(1_000);
 		await expect(second).resolves.toEqual({ kind: 'timeout' });
 	});
 
-	it('offers the newest of the waits that arrived before any wait call', async () => {
+	it('reports the newest of the waits that arrived before any wait call', async () => {
 		const watch = await watches.watch(executionId);
 		emit(waiting(requestWait));
 		emit(waiting(subExecutionWait));
 
-		await expect(watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always })).resolves.toEqual({
+		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
 			kind: 'waiting',
 			wait: subExecutionWait,
 		});
 	});
 
-	it.each<
-		[string, (watch: EngineV2ExecutionWatch) => Promise<EngineV2WatchOutcome> | undefined]
-	>([
-		[
-			'a step starts after it',
-			() => {
-				emit({ type: 'step:started', ...stepFields });
-				return undefined;
-			},
-		],
-		[
-			'a call rejects it',
-			async (watch) => await watch.wait({ timeoutMs: 1_000, stopWhenWaiting: () => false }),
-		],
-	])('does not offer a wait that arrived before any wait call when %s', async (_name, act) => {
+	it('does not report a wait that arrived before any wait call when a step starts after it', async () => {
 		const watch = await watches.watch(executionId);
 		emit(waiting(requestWait));
-		const rejecting = act(watch);
+		emit({ type: 'step:started', ...stepFields });
 
-		const next = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
+		const next = watch.wait({ timeoutMs: 1_000 });
 		await vi.advanceTimersByTimeAsync(1_000);
 		await expect(next).resolves.toEqual({ kind: 'timeout' });
-		if (rejecting) await expect(rejecting).resolves.toEqual({ kind: 'timeout' });
-	});
-
-	it.each([true, false])(
-		'ends a wait call as aborted when its predicate stops the watch and returns %s',
-		async (accepts) => {
-			const watch = await watches.watch(executionId);
-			emit(waiting(requestWait));
-
-			const outcome = watch.wait({
-				timeoutMs: 1_000,
-				stopWhenWaiting: () => {
-					watch.stop();
-					return accepts;
-				},
-			});
-
-			await expect(outcome).resolves.toEqual({ kind: 'aborted' });
-		},
-	);
-
-	it('offers a wait to each pending call, keeps it for no later call, and stays subscribed', async () => {
-		const watch = await watches.watch(executionId);
-		const forRequest = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: (w) => w.awaitsRequest });
-		const forSubExecution = watch.wait({
-			timeoutMs: 1_000,
-			stopWhenWaiting: (w) => w.awaitsSubExecution,
-		});
-
-		emit(waiting(requestWait));
-		const later = watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always });
-
-		await expect(forRequest).resolves.toEqual({ kind: 'waiting', wait: requestWait });
-		expect(watches.isWatching(executionId)).toBe(true);
-		expect(remove).not.toHaveBeenCalled();
-		emit(ended('execution:failed'));
-		const failed = { kind: 'finished', status: 'error' };
-		await expect(Promise.all([forSubExecution, later])).resolves.toEqual([failed, failed]);
 	});
 
 	it('ignores a wait that arrives after the end', async () => {
@@ -238,7 +176,7 @@ describe('EngineV2ExecutionWatches', () => {
 		emit(ended('execution:completed'));
 		emit(waiting(requestWait));
 
-		await expect(watch.wait({ timeoutMs: 1_000, stopWhenWaiting: always })).resolves.toEqual({
+		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
 			kind: 'finished',
 			status: 'success',
 		});
@@ -283,7 +221,7 @@ describe('EngineV2ExecutionWatches', () => {
 		],
 		['the signal aborts', async () => controller.abort(), { kind: 'aborted' }],
 		[
-			'the predicate accepts a wait',
+			'the execution starts to wait',
 			async () => emit(waiting(subExecutionWait)),
 			{ kind: 'waiting', wait: subExecutionWait },
 		],
@@ -292,11 +230,7 @@ describe('EngineV2ExecutionWatches', () => {
 		async (_name, settle, expected) => {
 			const watch = await watches.watch(executionId);
 			const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
-			const outcome = watch.wait({
-				timeoutMs: 1_000,
-				abortSignal: controller.signal,
-				stopWhenWaiting: always,
-			});
+			const outcome = watch.wait({ timeoutMs: 1_000, abortSignal: controller.signal });
 
 			await settle();
 
