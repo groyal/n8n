@@ -64,7 +64,11 @@ Do not copy the new `1.x` runtime pin into this input.
   branch.
 - A dispatch on master with `push` always publishes. Use it when a publish run
   failed, when only the workflow changed, or to get patched OS packages. Then
-  pin the new digest.
+  pin the new digest. Set `targets` to build only some bases, so the tags of
+  the other bases stay on their digests.
+- `sec-base-image-refresh.yml` dispatches `build-base-image.yml` for a base
+  when a package that the base installs has a fix, and pins the rebuilt base
+  24 hours later.
 
 The `node-patched-26` target uses the same Node version and runtime base as
 `node-pc`, with pointer compression off. The workflow publishes runtime and
