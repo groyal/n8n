@@ -22,11 +22,7 @@ import type {
 import { callEvalMockHandler, normalizeLegacyRequest } from '@/execution-engine/eval-mock-helpers';
 
 import { getNonWorkflowAdditionalKeys } from '../get-additional-keys';
-import {
-	addManagedOrdId,
-	addRememberedOrdId,
-	resolveManagedCredentialType,
-} from '../managed-credential';
+import { addManagedOrdId, resolveManagedCredentialType } from '../managed-credential';
 import { httpRequestWithAuthentication, requestWithAuthentication } from './authentication';
 import { proxyRequestToAxios } from './legacy-request-adapter';
 import { refreshOAuth2Token, requestOAuth1, requestOAuth2 } from './oauth';
@@ -91,7 +87,7 @@ export const getRequestHelperFunctions = (
 				);
 				if (evalMockResponse !== undefined) return evalMockResponse;
 			}
-			return await sendHttpRequest(addRememberedOrdId(node, requestOptions), additionalData, node);
+			return await sendHttpRequest(addManagedOrdId(node, requestOptions), additionalData, node);
 		},
 		getSecureEgressFilter: (useDefaultSsrfPolicy) =>
 			Container.get(OutboundHttp).egressFilter(useDefaultSsrfPolicy),
@@ -125,10 +121,12 @@ export const getRequestHelperFunctions = (
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		): Promise<any> {
 			const resolvedType = resolveManagedCredentialType(node, credentialsType);
+			// Reads the linked credential, which records the ORD ID before the request is built.
+			if (resolvedType !== credentialsType) await this.getCredentials(credentialsType);
 			return await httpRequestWithAuthentication.call(
 				this,
 				resolvedType,
-				addManagedOrdId(node, credentialsType, resolvedType, requestOptions),
+				addManagedOrdId(node, requestOptions),
 				workflow,
 				node,
 				additionalData,
@@ -154,7 +152,7 @@ export const getRequestHelperFunctions = (
 			const uriOrObject =
 				typeof uriOrObjectWithTarget === 'string'
 					? uriOrObjectWithTarget
-					: addRememberedOrdId(node, toLegacyRequestOptions(uriOrObjectWithTarget));
+					: addManagedOrdId(node, toLegacyRequestOptions(uriOrObjectWithTarget));
 			const options = optionsWithTarget && toLegacyRequestOptions(optionsWithTarget);
 			if (evalLlmMock) {
 				const wantsFull = typeof uriOrObject !== 'string' && uriOrObject.resolveWithFullResponse;
@@ -182,10 +180,12 @@ export const getRequestHelperFunctions = (
 		): Promise<any> {
 			// oxlint-disable-next-line typescript/no-deprecated
 			const resolvedType = resolveManagedCredentialType(node, credentialsType);
+			// Reads the linked credential, which records the ORD ID before the request is built.
+			if (resolvedType !== credentialsType) await this.getCredentials(credentialsType);
 			return await requestWithAuthentication.call(
 				this,
 				resolvedType,
-				addManagedOrdId(node, credentialsType, resolvedType, requestOptions),
+				addManagedOrdId(node, requestOptions),
 				workflow,
 				node,
 				additionalData,
@@ -214,11 +214,12 @@ export const getRequestHelperFunctions = (
 			}
 			const resolvedOAuth1Type = resolveManagedCredentialType(node, credentialsType);
 			if (resolvedOAuth1Type !== credentialsType) {
+				await this.getCredentials(credentialsType);
 				// oxlint-disable-next-line typescript/no-deprecated
 				return await requestWithAuthentication.call(
 					this,
 					resolvedOAuth1Type,
-					addManagedOrdId(node, credentialsType, resolvedOAuth1Type, requestOptions),
+					addManagedOrdId(node, requestOptions),
 					workflow,
 					node,
 					additionalData,
@@ -249,11 +250,12 @@ export const getRequestHelperFunctions = (
 			}
 			const resolvedOAuth2Type = resolveManagedCredentialType(node, credentialsType);
 			if (resolvedOAuth2Type !== credentialsType) {
+				await this.getCredentials(credentialsType);
 				// oxlint-disable-next-line typescript/no-deprecated
 				return await requestWithAuthentication.call(
 					this,
 					resolvedOAuth2Type,
-					addManagedOrdId(node, credentialsType, resolvedOAuth2Type, requestOptions),
+					addManagedOrdId(node, requestOptions),
 					workflow,
 					node,
 					additionalData,

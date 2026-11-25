@@ -127,13 +127,12 @@ describe('spike managed credential types', () => {
 			expect(() => assertManagedCredentialType('slackApi')).not.toThrow();
 		});
 
-		it('refuses every type when managed mode is on, because n8n builds the credential', () => {
+		it('allows only the managed type when managed mode is on', () => {
 			process.env.N8N_MANAGED_CREDENTIAL_TYPE = 'sapManagedApi';
-			for (const type of ['sapManagedApi', 'slackApi']) {
-				expect(() => assertManagedCredentialType(type)).toThrow(
-					'Credentials cannot be created on this instance',
-				);
-			}
+			expect(() => assertManagedCredentialType('sapManagedApi')).not.toThrow();
+			expect(() => assertManagedCredentialType('slackApi')).toThrow(
+				'Only "sapManagedApi" credentials can be created on this instance',
+			);
 		});
 	});
 });

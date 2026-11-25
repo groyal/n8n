@@ -25,5 +25,4 @@ N8N_SECURE_COOKIE=false \
 N8N_CUSTOM_EXTENSIONS="$KIT/custom" \
 N8N_MANAGED_CREDENTIAL_TYPE=sapManagedApi \
 N8N_SPIKE_EGRESS_URL="http://127.0.0.1:$MOCK_PORT" \
-N8N_SPIKE_ORD_ID_MAP="$(cat "$KIT/ord-id-map.json")" \
 	pnpm start

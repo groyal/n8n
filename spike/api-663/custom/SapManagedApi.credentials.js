@@ -1,7 +1,7 @@
 'use strict';
 
-// Holds no secret and no ORD ID. Standard nodes get their fixed ORD ID from core;
-// generic HTTP stores its ORD ID in the workflow (SAP's design-time UMS lookup).
+// Approach A: holds one ORD ID and no secret. n8n sends the ORD ID with every request
+// of a node this credential is linked to.
 class SapManagedApi {
 	constructor() {
 		this.name = 'sapManagedApi';
@@ -15,8 +15,10 @@ class SapManagedApi {
 				type: 'notice',
 				default: '',
 			},
+			// Approach A: Joule Studio creates one credential per ORD ID through n8n's API.
+			{ displayName: 'ORD ID', name: 'ordId', type: 'string', default: '', required: true },
 		];
-		// n8n builds this credential at run time. The editor shows it as a fixed, disabled value.
+		// The editor shows the linked credential as a fixed, disabled value.
 		this.systemManaged = true;
 		// Lists the type under HTTP Request > Predefined Credential Type.
 		this.httpRequestNode = { name: 'Managed by SAP', docsUrl: '', apiBaseUrlPlaceholder: 'https://' };

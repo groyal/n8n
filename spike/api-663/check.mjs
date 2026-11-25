@@ -1,5 +1,6 @@
 // Automated end-to-end checks for the API-663 spike. Needs ./start.sh running.
 // Usage: node spike/api-663/check.mjs [filter]
+// Approach A: each node links a "Managed by SAP" credential that holds its ORD ID.
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -63,10 +64,25 @@ if ((await call('POST', '/rest/owner/setup', owner)).status !== 200) {
 }
 
 // --- Credentials -------------------------------------------------------------
-// n8n builds the managed credential at run time. No record is stored, and none can be created.
-for (const [type, data] of [[MANAGED, {}], ['slackApi', { accessToken: 'xoxb-real' }]]) {
-	const created = await call('POST', '/rest/credentials', { name: `Try ${type}`, type, data });
-	record('Safeguard', `Creating a "${type}" credential is refused`, created.status === 400 ? 'PASS' : 'FAIL', `${created.status} ${created.json?.message ?? ''}`);
+// Joule Studio's assistant would create one credential per ORD ID through the API.
+{
+	const other = await call('POST', '/rest/credentials', { name: 'Real Slack', type: 'slackApi', data: { accessToken: 'xoxb-real' } });
+	record('Safeguard', 'Creating any other credential type is refused', other.status === 400 ? 'PASS' : 'FAIL', `${other.status} ${other.json?.message ?? ''}`);
+}
+const ordCredentials = new Map((await call('GET', '/rest/credentials')).json.data.filter((c) => c.type === MANAGED).map((c) => [c.name, c]));
+async function ordCredential(ordId) {
+	const name = `ORD ${ordId}`;
+	if (!ordCredentials.has(name)) {
+		const created = await call('POST', '/rest/credentials', { name, type: MANAGED, data: { ordId } });
+		if (created.status !== 200) throw new Error(`Creating ${name} failed: ${created.status}`);
+		ordCredentials.set(name, created.json.data);
+	}
+	const { id } = ordCredentials.get(name);
+	return { [MANAGED]: { id, name } };
+}
+{
+	const created = await ordCredential('sap.thirdparty:apiResource:SLACK:v1').catch((e) => e);
+	record('Credential', 'Create a "Managed by SAP" credential with an ORD ID', created instanceof Error ? 'FAIL' : 'PASS', created instanceof Error ? created.message : '');
 }
 
 // --- Safeguard: a real credential stored outside the API ---------------------
@@ -91,10 +107,10 @@ const rl = (value) => ({ __rl: true, mode: 'id', value });
 const ord = (name, v = 'v1') => `sap.thirdparty:apiResource:${name}:${v}`;
 
 const cases = [
-	{ label: 'HTTP Request, ORD ID stored in the workflow', ordID: 'customer.acme:apiResource:ACME_ITEMS:v1',
+	{ label: 'HTTP Request (linked credential wins over a typed header)', ordID: 'customer.acme:apiResource:ACME_ITEMS:v1',
 		node: { type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, parameters: { url: 'https://api.example.com/items',
 			authentication: 'predefinedCredentialType', nodeCredentialType: MANAGED, sendHeaders: true, specifyHeaders: 'keypair',
-			headerParameters: { parameters: [{ name: 'ordID', value: 'customer.acme:apiResource:ACME_ITEMS:v1' }] } } } },
+			headerParameters: { parameters: [{ name: 'ordID', value: 'typed-by-user' }] } } } },
 	{ label: 'Slack (requestWithAuthentication)', ordID: ord('SLACK'),
 		node: { type: 'n8n-nodes-base.slack', typeVersion: 2.3, parameters: { authentication: 'accessToken', resource: 'message',
 			operation: 'post', select: 'channel', channelId: rl('C0123456789'), text: 'hello' } } },
@@ -120,10 +136,18 @@ const cases = [
 		node: { type: 'n8n-nodes-base.googleSheets', typeVersion: 4.7, parameters: { authentication: 'serviceAccount', resource: 'sheet',
 			operation: 'read', documentId: rl('1abcDEF'), sheetName: rl('0') } } },
 	{ label: 'Node with a real (imported) Slack credential: n8n ignores it', ordID: ord('SLACK'), safeguard: true,
-		credentials: { slackApi: { id: REAL_ID, name: 'Real Slack (imported)' } },
+		realCredential: { slackApi: { id: REAL_ID, name: 'Real Slack (imported)' } },
+		node: { type: 'n8n-nodes-base.slack', typeVersion: 2.3, parameters: { authentication: 'accessToken', resource: 'message',
+			operation: 'post', select: 'channel', channelId: rl('C0123456789'), text: 'hello' } } },
+	{ label: 'Node with no linked credential fails before sending', expectNoRequest: true, safeguard: true, noLink: true,
 		node: { type: 'n8n-nodes-base.slack', typeVersion: 2.3, parameters: { authentication: 'accessToken', resource: 'message',
 			operation: 'post', select: 'channel', channelId: rl('C0123456789'), text: 'hello' } } },
 ];
+
+async function credentialsFor(c) {
+	if (c.noLink) return undefined;
+	return { ...(c.realCredential ?? {}), ...(await ordCredential(c.ordID ?? 'sap.thirdparty:apiResource:UNUSED:v1')) };
+}
 
 async function runCase(c) {
 	await clearMock();
@@ -131,7 +155,7 @@ async function runCase(c) {
 		name: `spike check: ${c.label}`,
 		nodes: [
 			{ name: 'Start', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0], parameters: {} },
-			{ name: 'Target', position: [240, 0], ...(c.credentials ? { credentials: c.credentials } : {}), ...c.node },
+			{ name: 'Target', position: [240, 0], credentials: await credentialsFor(c), ...c.node },
 		],
 		connections: { Start: { main: [[{ node: 'Target', type: 'main', index: 0 }]] } },
 		settings: {},
@@ -181,7 +205,7 @@ if (!filter || 'publish'.includes(filter)) {
 		name: 'spike check: publish a workflow with no credential',
 		nodes: [
 			{ name: 'Schedule', type: 'n8n-nodes-base.scheduleTrigger', typeVersion: 1.2, position: [0, 0], parameters: { rule: { interval: [{ field: 'hours' }] } } },
-			{ name: 'Target', position: [240, 0], ...cases[1].node },
+			{ name: 'Target', position: [240, 0], credentials: await credentialsFor(cases[1]), ...cases[1].node },
 		],
 		connections: { Schedule: { main: [[{ node: 'Target', type: 'main', index: 0 }]] } },
 		settings: {},

@@ -52,7 +52,7 @@ import { getAdditionalKeys } from './utils/get-additional-keys';
 import {
 	fillManagedPlaceholders,
 	getManagedCredentialType,
-	rememberManagedRequest,
+	rememberManagedOrdId,
 	resolveManagedCredentialType,
 } from './utils/managed-credential';
 import { validateValueAgainstSchema } from './utils/validate-value-against-schema';
@@ -344,10 +344,26 @@ export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCr
 		const { workflow, node, additionalData, mode, runExecutionData, runIndex } = this;
 		const type = resolveManagedCredentialType(node, requestedType);
 
-		// SPIKE (API-663): no credential is stored in managed mode. Whatever the node's slot
-		// holds is ignored, and n8n builds the data from the requested type's fields.
-		if (getManagedCredentialType()) {
-			if (requestedType !== type) rememberManagedRequest(node, requestedType);
+		// SPIKE (API-663): approach A. Only the linked "Managed by SAP" credential is read, for
+		// its ORD ID. Any other credential on the node is ignored, and n8n builds the node's
+		// data from the requested type's fields, with no secret.
+		const managedType = getManagedCredentialType();
+		if (managedType) {
+			const linked = node.credentials?.[managedType];
+			if (!linked?.id) {
+				throw new NodeOperationError(
+					node,
+					'Link a "Managed by SAP" credential with an ORD ID to this node',
+				);
+			}
+			const managedData = await additionalData.credentialsHelper.getDecrypted(
+				additionalData,
+				linked,
+				managedType,
+				mode,
+				executeData,
+			);
+			rememberManagedOrdId(node, managedData.ordId);
 			let properties: INodeProperties[] = [];
 			try {
 				properties = additionalData.credentialsHelper.getCredentialsProperties(requestedType);
