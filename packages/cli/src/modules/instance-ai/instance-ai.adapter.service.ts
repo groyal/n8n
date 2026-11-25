@@ -290,6 +290,7 @@ import {
 } from './instance-ai-run-pin-data';
 import {
 	MAX_RUN_OUTPUT_FILES,
+	countItemFiles,
 	storeItemFiles,
 	storeRunOutputFiles,
 } from './instance-ai-run-output-files';
@@ -5881,7 +5882,7 @@ export async function extractNodeOutput(
 	let returnedCount = 0;
 	const outputs: NodeOutputBranch[] = [];
 	// The model sees only the JSON of an item, so the result counts the files apart.
-	const returnedItemsWithFiles: Array<{ binary: IBinaryKeyData }> = [];
+	const returnedItemsWithFiles: Array<{ binary?: IBinaryKeyData }> = [];
 	for (let outputIndex = 0; outputIndex < outputCount; outputIndex++) {
 		const collected: unknown[] = [];
 		let itemsOnOutput = 0;
@@ -5897,9 +5898,7 @@ export async function extractNodeOutput(
 							`node:${nodeName}${call}[${outputIndex}][${itemsOnOutput}]`,
 						),
 					);
-					if (item.binary && Object.keys(item.binary).length > 0) {
-						returnedItemsWithFiles.push({ binary: item.binary });
-					}
+					if (item.binary) returnedItemsWithFiles.push(item);
 					returnedCount++;
 				}
 				index++;
@@ -5915,16 +5914,13 @@ export async function extractNodeOutput(
 		});
 	}
 
-	const binaryFileCount = returnedItemsWithFiles.reduce(
-		(count, item) => count + Object.keys(item.binary).length,
-		0,
-	);
+	const binaryFileCount = countItemFiles(returnedItemsWithFiles);
 	const storedFiles =
 		options?.storeFile && binaryFileCount > 0
 			? await storeItemFiles(
 					returnedItemsWithFiles,
 					options.storeFile,
-					`one call stores at most ${MAX_RUN_OUTPUT_FILES} files; page with startIndex and maxItems`,
+					`one call stores at most ${MAX_RUN_OUTPUT_FILES} files; ask for fewer items with startIndex and maxItems to store the files of later items`,
 				)
 			: {};
 
