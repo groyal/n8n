@@ -320,7 +320,6 @@ describe('GlobalConfig', () => {
 			formTest: 'form-test',
 			formWaiting: 'form-waiting',
 			mcp: 'mcp',
-			mcpAppsEnabled: false,
 			mcpBuilderEnabled: true,
 			mcpMaxRegisteredClients: 5000,
 			mcpTest: 'mcp-test',
