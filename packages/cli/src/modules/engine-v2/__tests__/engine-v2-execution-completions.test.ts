@@ -1,5 +1,6 @@
+import { Time } from '@n8n/constants';
 import type { LifecycleEvent } from '@n8n/engine';
-import { OperationalError } from '@n8n/errors';
+import { OperationalError, UnexpectedError } from '@n8n/errors';
 import type { Mock } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 
@@ -95,14 +96,22 @@ describe('EngineV2ExecutionCompletions', () => {
 		await expect(outcome).resolves.toEqual({ kind: 'timeout' });
 	});
 
-	it('keeps waiting when the timeout is above the largest delay of setTimeout', async () => {
+	it('keeps waiting until a timeout of 24 hours runs out', async () => {
 		const watch = await completions.watch(executionId);
-		const outcome = watch.wait({ timeoutMs: 2 ** 31 });
+		const outcome = watch.wait({ timeoutMs: Time.days.toMilliseconds });
 
-		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.advanceTimersByTimeAsync(Time.days.toMilliseconds - 1);
 		emit(ended('execution:completed'));
 
 		await expect(outcome).resolves.toEqual({ kind: 'finished', status: 'success' });
+	});
+
+	it('rejects a timeout above 24 hours', async () => {
+		const watch = await completions.watch(executionId);
+
+		await expect(watch.wait({ timeoutMs: Time.days.toMilliseconds + 1 })).rejects.toThrow(
+			UnexpectedError,
+		);
 	});
 
 	it('resolves as aborted at once when the signal is already aborted', async () => {

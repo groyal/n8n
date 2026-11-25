@@ -1,33 +1,34 @@
+import { Time } from '@n8n/constants';
 import { Service } from '@n8n/di';
 import type { LifecycleEvent } from '@n8n/engine';
-import type { ExecutionStatus } from 'n8n-workflow';
+import { UnexpectedError } from '@n8n/errors';
+import type { TerminalExecutionStatus } from 'n8n-workflow';
 
 import { EngineV2LifecycleSubscriptions } from './engine-lifecycle-event-subscriptions';
 
-type FinishedStatus = Extract<ExecutionStatus, 'success' | 'error' | 'canceled'>;
-
 export type EngineV2CompletionOutcome =
-	| { kind: 'finished'; status: FinishedStatus }
+	| { kind: 'finished'; status: TerminalExecutionStatus }
 	| { kind: 'timeout' }
 	| { kind: 'aborted' };
 
 export type EngineV2CompletionWaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
 
-/** Node runs a longer `setTimeout` delay after 1 ms. */
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const MAX_WAIT_TIMEOUT_MS = Time.days.toMilliseconds;
 
 export interface EngineV2CompletionWatch {
 	/**
 	 * Resolves when the execution ends, the time runs out, the signal aborts, or
-	 * the watch stops. Never rejects. Does not stop the watch or cancel the run.
+	 * the watch stops. Does not stop the watch or cancel the run.
 	 * `timeoutMs` is required: delivery is best effort, so the end event can be lost.
+	 *
+	 * @throws {UnexpectedError} If `timeoutMs` is more than 24 hours.
 	 */
 	wait(options: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome>;
 	/** Ends the watch and resolves each pending wait as `aborted`. */
 	stop(): void;
 }
 
-const FINISHED_STATUS: Partial<Record<LifecycleEvent['type'], FinishedStatus>> = {
+const FINISHED_STATUS: Partial<Record<LifecycleEvent['type'], TerminalExecutionStatus>> = {
 	'execution:completed': 'success',
 	'execution:failed': 'error',
 	'execution:cancelled': 'canceled',
@@ -57,6 +58,11 @@ class CompletionWatch implements EngineV2CompletionWatch {
 		timeoutMs,
 		abortSignal,
 	}: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome> {
+		if (timeoutMs > MAX_WAIT_TIMEOUT_MS) {
+			throw new UnexpectedError('The wait timeout must not be more than 24 hours', {
+				extra: { timeoutMs },
+			});
+		}
 		if (this.outcome) return this.outcome;
 		if (abortSignal?.aborted) return { kind: 'aborted' };
 
@@ -68,8 +74,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
 				resolve(outcome);
 			};
 			const onAbort = () => settle({ kind: 'aborted' });
-			const delay = Math.min(timeoutMs, MAX_TIMER_DELAY_MS);
-			const timer = setTimeout(() => settle({ kind: 'timeout' }), delay).unref();
+			const timer = setTimeout(() => settle({ kind: 'timeout' }), timeoutMs).unref();
 			abortSignal?.addEventListener('abort', onAbort, { once: true });
 			this.waiters.add(settle);
 		});
@@ -92,15 +97,11 @@ class CompletionWatch implements EngineV2CompletionWatch {
 /**
  * Lets control-plane code wait for the end of an engine v2 execution without
  * polling. Events are not replayed, so watch the execution before it starts.
- * Only an engine v2 run sends events: the workflow sets `engineType: 'v2'`, and
- * `EngineV2Dispatcher.routesToEngineV2` routes its mode. For any other run,
- * `run()` returns a different id, and `wait` ends with `timeout`.
  *
  * ```ts
  * const executionId = createExecutionIdV2();
  * const watch = await completions.watch(executionId);
  * try {
- * 	// For an engine v2 run, `run()` returns `executionId`.
  * 	await workflowRunner.run({ ...runData, engineV2ExecutionId: executionId });
  * 	const outcome = await watch.wait({ timeoutMs });
  * } finally {
