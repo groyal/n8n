@@ -77,16 +77,20 @@ describe('Agent attention flags', () => {
 		if (!migration) throw new Error('Attention flag migration not found');
 		// Template databases skip startup migration wrapping in this worker.
 		wrapMigration(migration);
-		expect(dataSource.migrations.at(-1)?.constructor.name).toBe(migration.name);
+		// Run this migration's own down and up, so the test does not need it to be the newest one.
+		const instance = dataSource.migrations.find(
+			(candidate) => candidate.constructor.name === migration.name,
+		);
+		if (!instance?.down) throw new Error('Attention flag migration is not registered');
 		const runner = dataSource.createQueryRunner();
 		try {
-			await dataSource.undoLastMigration();
+			await instance.down(runner);
 			expect(
 				await runner.hasTable(dataSource.getMetadata(AgentAttentionFlagEntity).tablePath),
 			).toBe(false);
 		} finally {
+			await instance.up(runner);
 			await runner.release();
-			await dataSource.runMigrations();
 		}
 		expect(await dataSource.getRepository(AgentAttentionFlagEntity).count()).toBe(0);
 	});
