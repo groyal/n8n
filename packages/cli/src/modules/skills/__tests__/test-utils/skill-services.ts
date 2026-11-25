@@ -1,5 +1,5 @@
 import type { Logger } from '@n8n/backend-common';
-import type { ProjectScopeService } from '@n8n/backend-services';
+import { InstanceWriteAccessService, type ProjectScopeService } from '@n8n/backend-services';
 import type { OperationContext, TransactionRunner, UserRepository } from '@n8n/db';
 import { mock } from 'vitest-mock-extended';
 
@@ -96,6 +96,7 @@ export function createSkillServices() {
 	const links = mock<SkillSourceRepository>();
 	const skillSyncGate = mock<SkillSyncFlagGate>();
 	const sourceClients = mock<SkillSourceClientRegistry>();
+	const instanceWriteAccess = new InstanceWriteAccessService();
 	const access = new SkillAccessService(skills, projectScope);
 	const runtime = new SkillRuntimeService(skills, projectScope, access);
 	const service = new SkillService(
@@ -113,8 +114,10 @@ export function createSkillServices() {
 		links,
 		skillSyncGate,
 		sourceClients,
+		instanceWriteAccess,
 	);
 	return {
+		instanceWriteAccess,
 		logger,
 		skills,
 		usage,

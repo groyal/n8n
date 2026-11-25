@@ -197,6 +197,14 @@ export class SkillImporter {
 				followingAgentCount: 0,
 			});
 		}
+		if (plan.writes.shared.length) {
+			try {
+				this.skillService.assertWritable();
+			} catch (error) {
+				if (!(error instanceof ForbiddenError)) throw error;
+				for (const { skill } of plan.writes.shared) issue(skill.id, error.message);
+			}
+		}
 		return plan;
 	}
 
@@ -465,6 +473,7 @@ export class SkillImporter {
 		writes: SkillWrite[],
 		projectPendingCreation = false,
 	): Promise<void> {
+		if (writes.length) this.skillService.assertWritable();
 		const denied: string[] = [];
 		for (const write of writes) {
 			if (!(await this.canWrite(user, write, projectPendingCreation))) {

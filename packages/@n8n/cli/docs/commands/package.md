@@ -226,7 +226,7 @@ instructions, and supported reference files.
   versions stay unchanged. Plans and results include `followingAgentCount`.
 - Removal is explicit. A missing or empty Skills collection removes nothing.
   A requested removal fails if an Agent still references the Skill, including
-  a published version.
+  a published version. Package imports respect instance protection.
 - Synced Skills travel as content snapshots. Source connections, credentials,
   and authentication do not travel. New destination Skills have source `import`.
 - Results include `skills` and `counts.skills` with created, updated, unchanged,
