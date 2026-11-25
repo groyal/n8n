@@ -9,15 +9,9 @@ const SIGNING_CREDENTIAL_TYPES = new Set(['googleApi']);
  * Spike (API-663): in managed mode the editor offers only the managed credential.
  * Node code is unchanged; core swaps the type at runtime.
  */
-// Built into n8n, but offered only on an instance that runs in managed mode.
-const MANAGED_CREDENTIAL_TYPES = new Set(['sapManagedApi']);
-
 export function applyManagedCredentialToTypes(types: Types): void {
 	const managedType = process.env.N8N_MANAGED_CREDENTIAL_TYPE;
-	if (!managedType) {
-		types.credentials = types.credentials.filter(({ name }) => !MANAGED_CREDENTIAL_TYPES.has(name));
-		return;
-	}
+	if (!managedType) return;
 
 	types.nodes = types.nodes.map((description) => withManagedCredential(description, managedType));
 	types.credentials = types.credentials.filter(({ name }) => name === managedType);
