@@ -1,6 +1,5 @@
 import {
 	AGENT_SANDBOX_FILES_FLAG,
-	CREDENTIAL_DESCRIPTIONS_FLAG,
 	INSTANCE_AI_CLOUD_BROWSER_FLAG,
 	KNOWLEDGE_COLLECTIONS_FLAG,
 	SELF_HEALING_FLAG,
@@ -230,7 +229,6 @@ describe('PostHog', () => {
 			async (firstReader) => {
 				(PostHog.prototype.evaluateFlags as Mock).mockImplementation(async (distinctId: string) =>
 					mockEvaluatedFlags({
-						[CREDENTIAL_DESCRIPTIONS_FLAG]: distinctId === `company_${instanceId}`,
 						[AGENT_SANDBOX_FILES_FLAG]: distinctId === `company_${instanceId}`,
 						[INSTANCE_AI_CLOUD_BROWSER_FLAG]: distinctId === `company_${instanceId}`,
 						[KNOWLEDGE_COLLECTIONS_FLAG]: distinctId === `company_${instanceId}`,
@@ -244,12 +242,10 @@ describe('PostHog', () => {
 				}
 				for (const id of ['user-1', 'user-2']) {
 					const flags = await ph.getFeatureFlags({ id, createdAt });
-					expect(flags[CREDENTIAL_DESCRIPTIONS_FLAG]).toBe(true);
 					expect(flags[AGENT_SANDBOX_FILES_FLAG]).toBe(true);
 					expect(flags[INSTANCE_AI_CLOUD_BROWSER_FLAG]).toBe(true);
 					expect(flags[KNOWLEDGE_COLLECTIONS_FLAG]).toBe(true);
 				}
-				expect(await ph.getFeatureFlagForInstance(CREDENTIAL_DESCRIPTIONS_FLAG)).toBe(true);
 				expect(await ph.getFeatureFlagForInstance(AGENT_SANDBOX_FILES_FLAG)).toBe(true);
 				expect(await ph.getFeatureFlagForInstance(INSTANCE_AI_CLOUD_BROWSER_FLAG)).toBe(true);
 				expect(await ph.getFeatureFlagForInstance(KNOWLEDGE_COLLECTIONS_FLAG)).toBe(true);
@@ -257,7 +253,6 @@ describe('PostHog', () => {
 				expect(PostHog.prototype.evaluateFlags).toHaveBeenCalledWith(`company_${instanceId}`, {
 					groups: { company: instanceId },
 					flagKeys: [
-						CREDENTIAL_DESCRIPTIONS_FLAG,
 						AGENT_SANDBOX_FILES_FLAG,
 						INSTANCE_AI_CLOUD_BROWSER_FLAG,
 						KNOWLEDGE_COLLECTIONS_FLAG,
@@ -276,17 +271,15 @@ describe('PostHog', () => {
 							? instanceResult === undefined
 								? {}
 								: {
-										[CREDENTIAL_DESCRIPTIONS_FLAG]: instanceResult,
 										[AGENT_SANDBOX_FILES_FLAG]: instanceResult,
 									}
-							: { [CREDENTIAL_DESCRIPTIONS_FLAG]: true, [AGENT_SANDBOX_FILES_FLAG]: true },
+							: { [AGENT_SANDBOX_FILES_FLAG]: true },
 					),
 				);
 				const ph = new PostHogClient(instanceSettings, globalConfig);
 				await ph.init();
 
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
-				expect(flags[CREDENTIAL_DESCRIPTIONS_FLAG]).toBe(false);
 				expect(flags[AGENT_SANDBOX_FILES_FLAG]).toBe(false);
 			},
 		);
@@ -320,7 +313,6 @@ describe('PostHog', () => {
 			const expected = {
 				featureFlags: {
 					...flags,
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -350,7 +342,6 @@ describe('PostHog', () => {
 
 			expect(first).toEqual({
 				...flags,
-				[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 				[AGENT_SANDBOX_FILES_FLAG]: false,
 				[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 				[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -358,7 +349,6 @@ describe('PostHog', () => {
 			});
 			expect(second).toEqual({
 				...flags,
-				[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 				[AGENT_SANDBOX_FILES_FLAG]: false,
 				[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 				[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -493,7 +483,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -516,7 +505,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -555,7 +543,6 @@ describe('PostHog', () => {
 
 				expect(data).toEqual({
 					featureFlags: {
-						[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 						[AGENT_SANDBOX_FILES_FLAG]: false,
 						[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 						[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -585,7 +572,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -620,7 +606,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -639,7 +624,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -670,7 +654,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
@@ -692,7 +675,6 @@ describe('PostHog', () => {
 				const flags = await ph.getFeatureFlags({ id: userId, createdAt });
 
 				expect(flags).toEqual({
-					[CREDENTIAL_DESCRIPTIONS_FLAG]: false,
 					[AGENT_SANDBOX_FILES_FLAG]: false,
 					[INSTANCE_AI_CLOUD_BROWSER_FLAG]: false,
 					[KNOWLEDGE_COLLECTIONS_FLAG]: false,
