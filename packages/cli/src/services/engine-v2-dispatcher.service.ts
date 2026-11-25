@@ -333,16 +333,13 @@ export class EngineV2Dispatcher {
 		data: IWorkflowExecutionDataProcess,
 	): Promise<LifecycleEventSubscription | undefined> {
 		if (data.pushRef) return { kind: 'all' };
-		// A caller can only watch a run whose id it minted.
-		if (data.engineV2ExecutionId === undefined) return undefined;
 
-		// Lazily imported: the completions belong to the engine-v2 module.
 		const { EngineV2ExecutionCompletions } = await import(
 			'@/modules/engine-v2/engine-v2-execution-completions.js'
 		);
-		if (!Container.get(EngineV2ExecutionCompletions).isWatching(executionId)) return undefined;
+		if (Container.get(EngineV2ExecutionCompletions).isWatching(executionId)) return { kind: 'all' };
 
-		return { kind: 'all' };
+		return undefined;
 	}
 
 	/** v1's `resolvePinData`: a production run ignores pinned data. */
