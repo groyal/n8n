@@ -1,6 +1,5 @@
 import { nanoid } from 'nanoid';
 
-import type { TestRequirements } from '../../../Types';
 import { expect, instanceAiTestConfig, test } from './fixtures';
 
 const mentionsTestConfig = {
@@ -9,19 +8,13 @@ const mentionsTestConfig = {
 		...instanceAiTestConfig.capability,
 		env: {
 			...instanceAiTestConfig.capability.env,
+			// Mentions work without the canvas node-context rollout.
 			N8N_FEATURE_FLAG_OVERRIDES: JSON.stringify({
-				'116_at_mentions_enabled': true,
 				'104_canvas_aia_node_context': false,
 			}),
 		},
 	},
 } as const;
-
-const requirements: TestRequirements = {
-	storage: {
-		N8N_EXPERIMENT_OVERRIDES: JSON.stringify({ '116_at_mentions_enabled': true }),
-	},
-};
 
 test.use(mentionsTestConfig);
 
@@ -41,8 +34,7 @@ test.describe(
 					},
 				],
 			},
-			async ({ n8n, api, setupRequirements, a11y }) => {
-				await setupRequirements(requirements);
+			async ({ n8n, api, a11y }) => {
 				const project = await api.projects.getMyPersonalProject();
 				const workflow = await api.workflows.createWorkflow(
 					{
@@ -121,8 +113,7 @@ test.describe(
 					},
 				],
 			},
-			async ({ n8n, api, setupRequirements }) => {
-				await setupRequirements(requirements);
+			async ({ n8n, api }) => {
 				const project = await api.projects.getMyPersonalProject();
 				const imported = await api.workflows.importWorkflowFromFile(
 					'Canvas-node-groups-persisted-fixture.json',

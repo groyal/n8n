@@ -314,13 +314,6 @@ vi.mock('@/features/agents/n8nChatPage/components/N8nChatAgentPicker.vue', () =>
 	},
 }));
 
-// Not otherwise exercised by this view's tests; defaults on so the mentions-gating
-// tests below can prove the agent-selection gate rather than a flag that's already off.
-const mentionsFlagEnabled = { value: true };
-vi.mock('@/features/ai/assistant-at-mentions/composables/useIsAssistantAtMentionsEnabled', () => ({
-	useIsAssistantAtMentionsEnabled: () => computed(() => mentionsFlagEnabled.value),
-}));
-
 vi.mock('uuid', () => ({
 	v4: () => 'thread-placeholder',
 }));
@@ -683,7 +676,6 @@ describe('InstanceAiEmptyView', () => {
 		cloudPlanStoreMock.state.initialized = false;
 		cloudPlanStoreMock.currentUserCloudInfo = null;
 		appSettingsStoreMock.isCloudDeployment = false;
-		mentionsFlagEnabled.value = true;
 	});
 
 	afterEach(() => {

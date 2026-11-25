@@ -87,7 +87,6 @@ import { useAgentCapabilitySummary } from '@/features/agents/composables/useAgen
 import { useAgentEvalsStore } from '@/features/agents/agentEvals.store';
 import { useIsAgentWorking } from './composables/useIsAgentWorking';
 import { useAgentReturnContextStore } from '@/features/agents/agentReturnContext.store';
-import { useIsAssistantAtMentionsEnabled } from '@/features/ai/assistant-at-mentions/composables/useIsAssistantAtMentionsEnabled';
 import { useTestAgentPreviewFlag } from '@/features/agents/composables/useTestAgentPreviewFlag';
 
 const props = defineProps<{ threadId: string }>();
@@ -111,7 +110,6 @@ const route = useRoute();
 const { width: windowWidth } = useWindowSize();
 const { isCollapsed: isMainSidebarCollapsed, sidebarWidth: mainSidebarWidth } = useSidebarLayout();
 const toast = useToast();
-const mentionsEnabled = useIsAssistantAtMentionsEnabled();
 
 const conversationRef = useTemplateRef<InstanceType<typeof InstanceAiConversation>>('conversation');
 
@@ -985,7 +983,7 @@ function handleNewThreadClick() {
 				<InstanceAiConversation
 					ref="conversation"
 					:above-input-overlap-height="setupPanelWorkflowId ? setupOverlapHeight : undefined"
-					:mentions-enabled="mentionsEnabled"
+					mentions-enabled
 					@thread-missing="onThreadMissing"
 					@agent-attachment-restored="onAgentAttachmentRestored"
 				>

@@ -1,4 +1,4 @@
-import { AI_ASSISTANT_AT_MENTIONS_FLAG, CANVAS_NODE_CONTEXT_FLAG } from '@n8n/api-types';
+import { CANVAS_NODE_CONTEXT_FLAG } from '@n8n/api-types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useIsNodeContextEnabled } from './useIsNodeContextEnabled';
@@ -20,8 +20,7 @@ describe('useIsNodeContextEnabled', () => {
 		editorContext.instanceAi.value = true;
 	});
 
-	it('keeps canvas controls disabled when only Assistant mentions are enabled', () => {
-		flagValues.set(AI_ASSISTANT_AT_MENTIONS_FLAG, true);
+	it('keeps canvas controls disabled without the canvas node-context flag', () => {
 		flagValues.set(CANVAS_NODE_CONTEXT_FLAG, false);
 
 		expect(useIsNodeContextEnabled().value).toBe(false);

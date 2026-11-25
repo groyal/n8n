@@ -106,7 +106,6 @@ import LimitedModeNotice from './components/LimitedModeNotice.vue';
 import ModelTrainingNotice from './components/ModelTrainingNotice.vue';
 import CreditWarningBanner from '@/features/ai/assistant/components/Agent/CreditWarningBanner.vue';
 import ProjectSelect from './components/ProjectSelect.vue';
-import { useIsAssistantAtMentionsEnabled } from '@/features/ai/assistant-at-mentions/composables/useIsAssistantAtMentionsEnabled';
 import {
 	EMPTY_ASSISTANT_MENTION_COUNTS,
 	type AssistantMentionCounts,
@@ -197,7 +196,6 @@ const rootStore = useRootStore();
 const toast = useToast();
 const telemetry = useTelemetry();
 const i18n = useI18n();
-const mentionsEnabled = useIsAssistantAtMentionsEnabled();
 // Opening a new conversation drops the tab title of the thread we came from —
 // this view mounts on every entry to the empty route, the parent layout doesn't.
 useDocumentTitle().set(i18n.baseText('instanceAi.view.title'));
@@ -679,7 +677,7 @@ const isComposerAvailable = computed(
 	() => settingsStore.isWorkflowBuilderAvailable || !!selectedChatAgent.value,
 );
 // Mentions only make sense against the Assistant, so they're off while an agent is selected.
-const inputMentionsEnabled = computed(() => mentionsEnabled.value && !selectedChatAgent.value);
+const inputMentionsEnabled = computed(() => !selectedChatAgent.value);
 // An agent can't use connectors or computer/browser use, so the composer offers only the file
 // types its model accepts; n8n Assistant keeps the full "+" menu.
 const composerAttachOnlyMimeTypes = computed(() =>
@@ -1028,7 +1026,7 @@ async function handleWorkflowPreviewExampleUse(
 						:is-submitting="isStartingThread"
 						:is-out-of-credits="isOutOfCredits"
 						:is-workflow-builder-available="settingsStore.isWorkflowBuilderAvailable"
-						:mentions-enabled="mentionsEnabled"
+						mentions-enabled
 						:mention-project-id="selectedProject"
 						:inline-mentions="settingsStore.newThreadsUseAssistantAgent"
 						@submit="handleSubmit"
