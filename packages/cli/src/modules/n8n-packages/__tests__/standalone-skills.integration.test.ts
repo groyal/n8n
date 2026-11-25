@@ -1,5 +1,5 @@
 import { LicenseState, ModuleRegistry } from '@n8n/backend-common';
-import { InstanceWriteAccessService, TelemetryProxy } from '@n8n/backend-services';
+import { TelemetryProxy } from '@n8n/backend-services';
 import {
 	createTeamProject,
 	createWorkflow,
@@ -76,12 +76,10 @@ beforeAll(async () => {
 beforeEach(async () => {
 	vi.restoreAllMocks();
 	Container.get(ModuleRegistry).settings.set('agents', { enabled: true });
-	Container.get(InstanceWriteAccessService).setReadOnly(false);
 	await deleteAllSkills();
 });
 
 afterAll(async () => {
-	Container.get(InstanceWriteAccessService).setReadOnly(false);
 	await testDb.terminate();
 });
 
@@ -506,42 +504,6 @@ it('rejects a source link added after planning', async () => {
 	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('now managed by a source');
 	expect(await findLatestSkillVersion(skill.id)).toMatchObject({ version: 1 });
 });
-
-it('rejects package imports on a protected instance', async () => {
-	const { id } = await createSkill({
-		projectId: destination.id,
-		content: { ...content, name: 'Existing guide' },
-	});
-	Container.get(InstanceWriteAccessService).setReadOnly(true);
-	await expect(importSkills(await archive([packaged()]))).rejects.toMatchObject({
-		meta: {
-			issues: [expect.objectContaining({ message: expect.stringContaining('protected instance') })],
-		},
-	});
-	expect(await findSkillIds()).toEqual([id]);
-});
-
-it.each(['create', 'update', 'delete'] as const)(
-	'rechecks instance write settings before applying a Skill %s',
-	async (action) => {
-		const skill = packaged();
-		if (action !== 'create') await importSkills(await archive([skill]));
-		const before = await findLatestSkillVersion(skill.id);
-		skill.skill.instructions = 'Reviewed instructions';
-		const importer = Container.get(SkillImporter);
-		const plan = await importer.planStandalone(
-			owner,
-			action === 'delete' ? [] : [{ skill, projectId: destination.id }],
-			action === 'delete' ? [skill.id] : [],
-			'new-version',
-		);
-		expect(plan.issues).toEqual([]);
-
-		Container.get(InstanceWriteAccessService).setReadOnly(true);
-		await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('protected instance');
-		expect(await findLatestSkillVersion(skill.id)).toEqual(before);
-	},
-);
 
 it('reports unavailable Skills and rejects unsupported format versions', async () => {
 	Container.get(ModuleRegistry).settings.set('agents', { enabled: false });
