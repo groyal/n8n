@@ -33,6 +33,7 @@ function createFakeChatModel(
 		chunks?: StreamChunk[];
 		structuredOutput?: boolean;
 		onStreamClose?: () => void;
+		generate?: ChatModel['generate'];
 		stream?: ChatModel['stream'];
 	} = {},
 ): FakeChatModel {
@@ -45,10 +46,12 @@ function createFakeChatModel(
 			provider: 'fake',
 			modelId: 'fake-model',
 			calls,
-			async generate(messages, config) {
-				calls.push({ messages, config, tools, structuredOutputSchema });
-				return options.result ?? { message: { role: 'assistant', content: [] } };
-			},
+			generate:
+				options.generate ??
+				async function (messages, config) {
+					calls.push({ messages, config, tools, structuredOutputSchema });
+					return options.result ?? { message: { role: 'assistant', content: [] } };
+				},
 			stream:
 				options.stream ??
 				async function* (messages, config) {
@@ -1552,10 +1555,11 @@ describe('AiSdkLanguageModelAdapter', () => {
 		it('writes a failed generate call as an error of the node and rethrows it', async () => {
 			const ctx = createNodeContext();
 			const error = new Error('quota exceeded');
-			const model = createFakeChatModel();
-			model.generate = async () => {
-				throw error;
-			};
+			const model = createFakeChatModel({
+				generate: async () => {
+					throw error;
+				},
+			});
 			const adapter = new AiSdkLanguageModelAdapter(model, ctx);
 
 			await expect(adapter.doGenerate(callOptions())).rejects.toThrow(error);
@@ -1568,11 +1572,12 @@ describe('AiSdkLanguageModelAdapter', () => {
 
 		it('writes a thrown stream error as an error of the node', async () => {
 			const ctx = createNodeContext();
-			const model = createFakeChatModel();
-			model.stream = async function* () {
-				yield { type: 'text-delta', delta: 'Hel' };
-				throw new Error('network');
-			};
+			const model = createFakeChatModel({
+				async *stream() {
+					yield { type: 'text-delta', delta: 'Hel' };
+					throw new Error('network');
+				},
+			});
 			const adapter = new AiSdkLanguageModelAdapter(model, ctx);
 
 			const { stream } = await adapter.doStream(callOptions());
@@ -1669,10 +1674,11 @@ describe('AiSdkLanguageModelAdapter', () => {
 		it('writes a stream that fails to open as an error of the node and rethrows it', async () => {
 			const ctx = createNodeContext();
 			const error = new Error('invalid config');
-			const model = createFakeChatModel();
-			model.stream = () => {
-				throw error;
-			};
+			const model = createFakeChatModel({
+				stream: () => {
+					throw error;
+				},
+			});
 			const adapter = new AiSdkLanguageModelAdapter(model, ctx);
 
 			await expect(adapter.doStream(callOptions())).rejects.toThrow(error);
