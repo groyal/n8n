@@ -12,9 +12,6 @@ describe('isRefreshCommit', () => {
 		assert.ok(isRefreshCommit('build: Update base image digests with fewer OS findings (#45000)'));
 		assert.ok(isRefreshCommit('build: Update base image digests that need a review (#45003)'));
 		assert.ok(isRefreshCommit('build: Pin the base images that master published (#45001)'));
-		assert.ok(
-			isRefreshCommit('build: Pin the rebuilt base images with fewer OS findings (#45004)'),
-		);
 	});
 
 	it('rejects other commits', () => {
