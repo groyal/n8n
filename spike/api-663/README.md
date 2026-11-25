@@ -17,12 +17,22 @@ In managed mode, n8n holds no secret:
 
 ## Configuration
 
-| Setting | Value | Effect |
-|---|---|---|
-| `N8N_MANAGED_CREDENTIAL_TYPE` | `sapManagedApi` | Turns managed mode on. When unset, n8n works as today and hides the "Managed by SAP" type |
+Two settings and one file:
 
-The "Managed by SAP" credential type is built into n8n
-(`packages/nodes-base/credentials/SapManagedApi.credentials.ts`).
+| Part | Value | Effect |
+|---|---|---|
+| Credential type file | `SapManagedApi.credentials.js`, in a folder | Defines "Managed by SAP". An example is in `managed-credential/`. SAP can change its name, display name and notice. n8n reads the ORD ID from the field named `ordId` |
+| `N8N_CUSTOM_EXTENSIONS` | The folder that holds the file | n8n loads the file at startup, the same way it loads custom nodes |
+| `N8N_MANAGED_CREDENTIAL_TYPE` | `sapManagedApi` (the `name` in the file) | Turns managed mode on. Every node then uses this type. When unset, n8n works as today |
+
+In a Docker image, copy the folder into the image or mount it, and set both variables.
+
+**How the setting overrides a node's credential types:** each node lists the credential
+types it accepts (Slack accepts only "Slack API" and "Slack OAuth2"). In managed mode, the
+editor sees the managed type as the only credential of every node. When the node runs and
+asks for "Slack API", n8n reads the linked "Managed by SAP" credential for its ORD ID, and
+gives the node data built from the "Slack API" fields, with empty secrets. The node itself
+does not change.
 
 ## What Joule Studio does
 
@@ -59,7 +69,8 @@ A node with no linked credential fails before it sends anything, with the error
 
 ```bash
 pnpm build > build.log 2>&1
-cd packages/cli && N8N_MANAGED_CREDENTIAL_TYPE=sapManagedApi pnpm start
+cd packages/cli && N8N_CUSTOM_EXTENSIONS=../../spike/api-663/managed-credential \
+  N8N_MANAGED_CREDENTIAL_TYPE=sapManagedApi pnpm start
 ```
 
 1. Create a credential as above, and a workflow with a Slack node that links it.
@@ -89,7 +100,7 @@ cd packages/cli && pnpm test src/__tests__/spike-managed-credential-types.test.t
 
 | File | Change |
 |---|---|
-| `packages/nodes-base/credentials/SapManagedApi.credentials.ts` | The "Managed by SAP" credential type |
+| `spike/api-663/managed-credential/SapManagedApi.credentials.js` | Example "Managed by SAP" credential type |
 | `packages/core/.../utils/managed-credential.ts` | Builds the node's credential data, records and adds the ORD ID |
 | `packages/core/.../node-execution-context.ts` | In managed mode, reads only the linked credential |
 | `packages/core/.../request-helpers/factory.ts` | Auth helpers and OAuth paths add nothing but the ORD ID |
