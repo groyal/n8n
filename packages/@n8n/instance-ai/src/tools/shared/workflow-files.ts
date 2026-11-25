@@ -35,3 +35,19 @@ export async function readInputFiles(
 	// own properties only, so no key from the model can change a prototype.
 	return { binary: Object.fromEntries(entries) };
 }
+
+/**
+ * The approval prompt names the files that a run gets, because the run can
+ * send them to an outside service. Empty when it gets no files.
+ */
+export function describeInputFiles(binaries: Array<IBinaryKeyData | undefined>): string {
+	const names = binaries.flatMap((binary) =>
+		Object.values(binary ?? {}).map((entry) => entry.fileName ?? 'file'),
+	);
+	if (names.length === 0) return '';
+	const shown = names.slice(0, MAX_NAMED_INPUT_FILES).join(', ');
+	const more = names.length - MAX_NAMED_INPUT_FILES;
+	return ` with ${names.length === 1 ? 'the file' : 'the files'} ${shown}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
+const MAX_NAMED_INPUT_FILES = 5;

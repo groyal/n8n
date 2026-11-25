@@ -1143,7 +1143,12 @@ describe('execution tools', () => {
 	});
 
 	describe('files of a run', () => {
-		const pngBinary = { id: 'filesystem-v2:a', data: 'filesystem-v2', mimeType: 'image/png' };
+		const pngBinary = {
+			id: 'filesystem-v2:a',
+			data: 'filesystem-v2',
+			mimeType: 'image/png',
+			fileName: 'a.png',
+		};
 
 		function contextWithFiles() {
 			const storedFiles = {
@@ -1186,6 +1191,8 @@ describe('execution tools', () => {
 				expect.objectContaining({
 					binary: { image: pngBinary },
 					storeOutputFile: expect.any(Function),
+					// An input file that the run passes on is not a new file of the run.
+					inputFileIds: ['file-1'],
 				}),
 			);
 
@@ -1223,15 +1230,30 @@ describe('execution tools', () => {
 			},
 		);
 
-		it('does not run the workflow with a file that the conversation does not have', async () => {
+		it('names the input files in the approval prompt', async () => {
 			const { context } = contextWithFiles();
+			const suspend = vi.fn();
+
+			await executeTool(
+				createExecutionToolRouter(context),
+				{ action: 'run' as const, workflowId: 'wf-1', files: { image: 'file-1' } },
+				createAgentCtx({ suspend }) as never,
+			);
+
+			expect(suspend.mock.calls[0][0].message).toContain('Run this workflow live with the file a.png');
+		});
+
+		it('does not ask for approval or run the workflow with a file that the conversation does not have', async () => {
+			const { context } = contextWithFiles();
+			const suspend = vi.fn();
 
 			const result = await executeTool(
 				createExecutionToolRouter(context),
 				{ action: 'run' as const, workflowId: 'wf-1', files: { data: 'other' } },
-				createAgentCtx({ resumeData: { approved: true } }) as never,
+				createAgentCtx({ suspend }) as never,
 			);
 
+			expect(suspend).not.toHaveBeenCalled();
 			expect(result).toEqual({
 				executionId: '',
 				status: 'error',

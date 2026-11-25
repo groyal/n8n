@@ -26,7 +26,7 @@ import {
 	TRIGGER_NODE_NAME_DESCRIPTION,
 } from './shared/trigger-input-descriptions';
 import { recordLiveRunVerification } from './orchestration/verification/record-live-run';
-import { readInputFiles, workflowFilesOf } from './shared/workflow-files';
+import { describeInputFiles, readInputFiles, workflowFilesOf } from './shared/workflow-files';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -334,6 +334,13 @@ async function handleRun(
 	const allowedBySessionGrant = context.sessionApprovedToolKeys?.has(grantKey) === true;
 	const needsApproval = !allowedByScope && !allowedBySessionGrant;
 
+	// Read the files before the approval, so a missing file fails early and the prompt can name them.
+	const workflowFiles = workflowFilesOf(context);
+	const { binary, error: fileError } = workflowFiles
+		? await readInputFiles(workflowFiles, input.files)
+		: {};
+	if (fileError) return { executionId: '', status: 'error' as const, error: fileError };
+
 	// If approval is required and this is the first call, suspend for confirmation
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		await context.assertInThreadProject?.({ kind: 'workflow', id: workflowId });
@@ -341,7 +348,7 @@ async function handleRun(
 		return await suspend({
 			requestId: nanoid(),
 			message: formatApprovalMessage(
-				`Run this workflow live${input.triggerNodeName ? ` from "${input.triggerNodeName}"` : ''}`,
+				`Run this workflow live${input.triggerNodeName ? ` from "${input.triggerNodeName}"` : ''}${describeInputFiles([binary])}`,
 				input.approvalSummary,
 			),
 			resourceName: workflowName,
@@ -370,17 +377,13 @@ async function handleRun(
 	}
 
 	// Approved or always_allow — execute
-	const workflowFiles = workflowFilesOf(context);
-	const { binary, error: fileError } = workflowFiles
-		? await readInputFiles(workflowFiles, input.files)
-		: {};
-	if (fileError) return { executionId: '', status: 'error' as const, error: fileError };
 	const result = await context.executionService.run(workflowId, input.inputData, {
 		timeout: input.timeout,
 		triggerNodeName: input.triggerNodeName,
 		abortSignal,
 		binary,
 		storeOutputFile: workflowFiles?.storeWorkflowFile,
+		...(binary && input.files ? { inputFileIds: Object.values(input.files) } : {}),
 	});
 	// A live test is the evidence verification cannot produce itself. Record it
 	// so the publish gate stops disclosing simulations that this run replaced.
