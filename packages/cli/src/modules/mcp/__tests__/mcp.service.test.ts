@@ -1653,8 +1653,9 @@ describe('McpService', () => {
 		});
 
 		describe('MCP Apps integration', () => {
-			const appsEnabled = mcpFeatureFlags();
+			const flags = mcpFeatureFlags();
 			type BuildServiceOpts = {
+				appsEnabled?: boolean;
 				builderEnabled?: boolean;
 				diagnosticsEnabled?: boolean;
 				instanceBaseUrl?: string;
@@ -1663,6 +1664,7 @@ describe('McpService', () => {
 			};
 
 			const buildService = ({
+				appsEnabled = true,
 				builderEnabled = true,
 				diagnosticsEnabled = true,
 				instanceBaseUrl = 'https://n8n.test',
@@ -1687,6 +1689,7 @@ describe('McpService', () => {
 							webhook: '/webhook',
 							webhookTest: '/webhook-test',
 							rest: 'rest',
+							mcpAppsEnabled: appsEnabled,
 							mcpBuilderEnabled: builderEnabled,
 						},
 						diagnostics: {
@@ -1746,7 +1749,7 @@ describe('McpService', () => {
 				const postHogClient = mockInstance(PostHogClient);
 
 				const service = buildService({ postHogClient });
-				const server = await service.getServer(user, appsEnabled);
+				const server = await service.getServer(user, flags);
 
 				expect(registerWorkflowPreviewApp).toHaveBeenCalledTimes(1);
 				const [, appOptions] = (registerWorkflowPreviewApp as Mock).mock.calls[0] as [
@@ -1780,7 +1783,7 @@ describe('McpService', () => {
 				const user = Object.assign(new User(), { id: 'user-1', role: GLOBAL_MEMBER_ROLE });
 				const service = buildService({ diagnosticsEnabled: false });
 
-				await service.getServer(user, appsEnabled);
+				await service.getServer(user, flags);
 
 				const [, appOptions] = (registerWorkflowPreviewApp as Mock).mock.calls[0] as [
 					unknown,
@@ -1801,7 +1804,7 @@ describe('McpService', () => {
 				const user = Object.assign(new User(), { id: 'user-1', role: GLOBAL_MEMBER_ROLE });
 				const service = buildService({ instanceBaseUrl: 'not-a-url' });
 
-				await expect(service.getServer(user, appsEnabled)).resolves.toBeDefined();
+				await expect(service.getServer(user, flags)).resolves.toBeDefined();
 
 				const [, appOptions] = (registerWorkflowPreviewApp as Mock).mock.calls[0] as [
 					unknown,
@@ -1823,7 +1826,7 @@ describe('McpService', () => {
 				const telemetry = mockInstance(TelemetryProxy);
 
 				const service = buildService({ telemetry });
-				await service.getServer(user, appsEnabled, { name: 'Claude Desktop', version: '1.2.3' });
+				await service.getServer(user, flags, { name: 'Claude Desktop', version: '1.2.3' });
 
 				const [, appOptions] = (registerWorkflowPreviewApp as Mock).mock.calls[0] as [
 					unknown,
@@ -1838,10 +1841,20 @@ describe('McpService', () => {
 				});
 			});
 
+			it('registers the create tool without the preview app when N8N_MCP_APPS_ENABLED is false', async () => {
+				const user = Object.assign(new User(), { id: 'user-1', role: GLOBAL_MEMBER_ROLE });
+
+				const server = await buildService({ appsEnabled: false }).getServer(user, flags);
+
+				expect(registerWorkflowPreviewApp).not.toHaveBeenCalled();
+				expect(registeredCreateTool(server)).toBeDefined();
+				expect(registeredCreateTool(server)?._meta).toBeUndefined();
+			});
+
 			it('does not register the preview app when builder is disabled', async () => {
 				const user = Object.assign(new User(), { id: 'user-1', role: GLOBAL_MEMBER_ROLE });
 
-				await buildService({ builderEnabled: false }).getServer(user, appsEnabled);
+				await buildService({ builderEnabled: false }).getServer(user, flags);
 
 				expect(registerWorkflowPreviewApp).not.toHaveBeenCalled();
 			});

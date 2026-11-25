@@ -1099,7 +1099,7 @@ export class McpService {
 		// registrar as every other tool (schema bridging + instrumentation);
 		// only its _meta marks it as backed by the preview app resource.
 		const createToolAllowed = !allowedToolNames || allowedToolNames.has(createTool.name);
-		if (createToolAllowed) {
+		if (this.globalConfig.endpoints.mcpAppsEnabled && createToolAllowed) {
 			const appTelemetry = this.buildMcpAppTelemetryConfig();
 			registerWorkflowPreviewApp(server, {
 				instanceOrigin: appTelemetry.instanceOrigin,
@@ -1119,6 +1119,8 @@ export class McpService {
 					_meta: mcpAppToolMeta(WORKFLOW_PREVIEW_APP_URI),
 				},
 			});
+		} else {
+			registerIfAllowed(createTool);
 		}
 
 		const searchProjectsTool = createSearchProjectsTool(
