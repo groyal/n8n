@@ -484,6 +484,7 @@ export class SkillService {
 		payload: CreateSkillDto,
 		source: SkillTelemetrySource = 'ui',
 	): Promise<SkillDetail> {
+		this.assertWritable();
 		if (
 			payload.availableToAssistant !== undefined &&
 			!(await this.assistantSkillsFlagGate.isEnabled())
@@ -537,6 +538,7 @@ export class SkillService {
 			keepUnnamedBinaryFiles?: boolean;
 		} = {},
 	): Promise<SkillSaveResponse> {
+		this.assertWritable();
 		if (
 			payload.availableToAssistant !== undefined &&
 			!(await this.assistantSkillsFlagGate.isEnabled())
@@ -653,6 +655,7 @@ export class SkillService {
 	}
 
 	async delete(user: User, skillId: string, source: SkillTelemetrySource = 'ui'): Promise<void> {
+		this.assertWritable();
 		const skill = await this.skillAccess.requireAccess(user, skillId, 'delete');
 		// The conflict message names only the agents the user may read, as the detail does.
 		const agentProjectIds = await this.projectScopeService.getProjectIds(user, ['agent:read']);
@@ -681,6 +684,7 @@ export class SkillService {
 		},
 		ctx: OperationContext = {},
 	): Promise<string> {
+		this.assertWritable();
 		return await this.txRunner.run(ctx, async (txCtx) => {
 			const skill = withTrimmedName(input.skill);
 			assertHasInstructions(skill);
@@ -733,6 +737,7 @@ export class SkillService {
 			sourceRevision?: string;
 		} = {},
 	): Promise<SkillSaveResult> {
+		this.assertWritable();
 		const { saved, following } = await this.txRunner.run(ctx, async (txCtx) => {
 			await this.skillRepository.lockForEdit([skillId], txCtx);
 			const latest = (await this.skillRepository.findLatestSaved([skillId], txCtx)).get(skillId);
@@ -822,6 +827,7 @@ export class SkillService {
 			movingSourceId,
 		}: SkillMoveOptions = {},
 	): Promise<void> {
+		this.assertWritable();
 		await this.txRunner.run(ctx, async (txCtx) => {
 			await this.skillRepository.lockForEdit([skillId], txCtx);
 			// `assertCanMove` ran before the lock. If another move changed the scope since,
@@ -868,6 +874,7 @@ export class SkillService {
 		checkedTarget: SkillTarget,
 		ctx: OperationContext = {},
 	): Promise<void> {
+		this.assertWritable();
 		await this.txRunner.run(ctx, async (txCtx) => {
 			await this.lockInCheckedTarget(skillId, checkedTarget, txCtx);
 			await this.skillRepository.setAssistantAvailability(skillId, available, txCtx);
@@ -880,6 +887,7 @@ export class SkillService {
 		checkedTarget: SkillTarget,
 		ctx: OperationContext = {},
 	): Promise<void> {
+		this.assertWritable();
 		await this.txRunner.run(ctx, async (txCtx) => {
 			await this.lockInCheckedTarget(skillId, checkedTarget, txCtx);
 			await this.skillRepository.updateAvailableToMCP(skillId, available, txCtx);
