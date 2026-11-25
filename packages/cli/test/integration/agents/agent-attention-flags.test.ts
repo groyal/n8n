@@ -89,8 +89,11 @@ describe('Agent attention flags', () => {
 				await runner.hasTable(dataSource.getMetadata(AgentAttentionFlagEntity).tablePath),
 			).toBe(false);
 		} finally {
-			await instance.up(runner);
-			await runner.release();
+			try {
+				await instance.up(runner);
+			} finally {
+				await runner.release();
+			}
 		}
 		expect(await dataSource.getRepository(AgentAttentionFlagEntity).count()).toBe(0);
 	});
