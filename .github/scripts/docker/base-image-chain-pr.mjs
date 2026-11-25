@@ -48,7 +48,6 @@ export const CHAIN = {
 export const REFRESH_TITLES = [
 	'build: Update base image digests with fewer OS findings',
 	'build: Update base image digests that need a review',
-	'build: Pin the rebuilt base images with fewer OS findings',
 	CHAIN['build-base-image.yml'].title,
 ];
 
