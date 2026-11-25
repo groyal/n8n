@@ -52,6 +52,7 @@ import { getAdditionalKeys } from './utils/get-additional-keys';
 import {
 	fillManagedPlaceholders,
 	getManagedCredentialType,
+	readManagedOrdId,
 	rememberManagedOrdId,
 	resolveManagedCredentialType,
 } from './utils/managed-credential';
@@ -333,6 +334,28 @@ export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCr
 		}
 	}
 
+	/**
+	 * SPIKE (API-663): approach A. No credential is stored. The node's credential reference in
+	 * the workflow holds only the ORD ID, the same way Gateway credits marks a node. n8n builds
+	 * the node's data from the requested type's fields, with no secret.
+	 */
+	private getManagedCredentials<T extends object>(managedType: string, requestedType: string): T {
+		const { node, additionalData } = this;
+		const ordId = readManagedOrdId(node, managedType);
+		if (!ordId) {
+			throw new NodeOperationError(
+				node,
+				'Add an ORD ID to this node\'s "Managed by SAP" credential',
+			);
+		}
+		rememberManagedOrdId(node, ordId);
+		let properties: INodeProperties[] = [];
+		try {
+			properties = additionalData.credentialsHelper.getCredentialsProperties(requestedType);
+		} catch {}
+		return fillManagedPlaceholders(properties, {}) as T;
+	}
+
 	/** Returns the requested decrypted credentials if the node has access to them */
 	protected async _getCredentials<T extends object = ICredentialDataDecryptedObject>(
 		requestedType: string,
@@ -344,32 +367,8 @@ export abstract class NodeExecutionContext implements Omit<FunctionsBase, 'getCr
 		const { workflow, node, additionalData, mode, runExecutionData, runIndex } = this;
 		const type = resolveManagedCredentialType(node, requestedType);
 
-		// SPIKE (API-663): approach A. Only the linked "Managed by SAP" credential is read, for
-		// its ORD ID. Any other credential on the node is ignored, and n8n builds the node's
-		// data from the requested type's fields, with no secret.
 		const managedType = getManagedCredentialType();
-		if (managedType) {
-			const linked = node.credentials?.[managedType];
-			if (!linked?.id) {
-				throw new NodeOperationError(
-					node,
-					'Link a "Managed by SAP" credential with an ORD ID to this node',
-				);
-			}
-			const managedData = await additionalData.credentialsHelper.getDecrypted(
-				additionalData,
-				linked,
-				managedType,
-				mode,
-				executeData,
-			);
-			rememberManagedOrdId(node, managedData.ordId);
-			let properties: INodeProperties[] = [];
-			try {
-				properties = additionalData.credentialsHelper.getCredentialsProperties(requestedType);
-			} catch {}
-			return fillManagedPlaceholders(properties, {}) as T;
-		}
+		if (managedType) return this.getManagedCredentials<T>(managedType, requestedType);
 
 		// Eval bypass: only mock when the node is fully unconfigured, so nodes
 		// probing multiple auth types still get production's throw. Handler

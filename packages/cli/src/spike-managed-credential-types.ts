@@ -72,12 +72,22 @@ export function isManagedCredentialMode(): boolean {
 }
 
 /**
- * Spike (API-663): approach A. Only "Managed by SAP" credentials can be stored. They hold
- * an ORD ID and no secret.
+ * Spike (API-663): approach A. In managed mode n8n stores no credential. A node's reference
+ * to the managed type holds only an ORD ID, with no record behind it.
  */
-export function assertManagedCredentialType(type: string): void {
-	const managedType = process.env.N8N_MANAGED_CREDENTIAL_TYPE;
-	if (managedType && type !== managedType) {
-		throw new BadRequestError(`Only "${managedType}" credentials can be created on this instance`);
+export function assertManagedCredentialType(_type: string): void {
+	if (isManagedCredentialMode()) {
+		throw new BadRequestError(
+			'Credentials cannot be created on this instance. SAP Agent Gateway manages them',
+		);
 	}
+}
+
+/**
+ * Spike (API-663): approach A. A reference to the managed type has `id: null` by design, like
+ * a Gateway credits reference. Checks that resolve or reject references must skip it.
+ */
+export function isManagedCredentialReference(credentialType: string): boolean {
+	const managedType = process.env.N8N_MANAGED_CREDENTIAL_TYPE;
+	return !!managedType && credentialType === managedType;
 }

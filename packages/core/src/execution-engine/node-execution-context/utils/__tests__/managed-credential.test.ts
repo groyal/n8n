@@ -3,6 +3,7 @@ import type { INode, INodeProperties } from 'n8n-workflow';
 import {
 	addManagedOrdId,
 	fillManagedPlaceholders,
+	readManagedOrdId,
 	rememberManagedOrdId,
 	resolveManagedCredentialType,
 } from '../managed-credential';
@@ -32,6 +33,32 @@ describe('managed credential (spike)', () => {
 			expect(resolveManagedCredentialType(node(), 'microsoftOutlookOAuth2Api')).toBe(
 				'sapManagedApi',
 			);
+		});
+	});
+
+	describe('readManagedOrdId', () => {
+		it('reads the ORD ID from the node credential reference, with no stored record', () => {
+			const slack = {
+				...node(),
+				credentials: {
+					sapManagedApi: { id: null, name: 'Slack', ordId: 'sap:apiResource:SLACK:v1' },
+				},
+			};
+			expect(readManagedOrdId(slack, 'sapManagedApi')).toBe('sap:apiResource:SLACK:v1');
+		});
+
+		it('returns nothing when the reference has no ORD ID', () => {
+			const noOrdId = { ...node(), credentials: { sapManagedApi: { id: null, name: 'Slack' } } };
+			expect(readManagedOrdId(noOrdId, 'sapManagedApi')).toBeUndefined();
+			expect(readManagedOrdId(node(), 'sapManagedApi')).toBeUndefined();
+		});
+
+		it('ignores an ORD ID on another credential type', () => {
+			const other = {
+				...node(),
+				credentials: { slackApi: { id: '1', name: 'Slack', ordId: 'sap:apiResource:SLACK:v1' } },
+			};
+			expect(readManagedOrdId(other, 'sapManagedApi')).toBeUndefined();
 		});
 	});
 

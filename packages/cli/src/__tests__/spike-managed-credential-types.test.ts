@@ -4,6 +4,7 @@ import type { INodeTypeDescription } from 'n8n-workflow';
 import {
 	applyManagedCredentialToTypes,
 	assertManagedCredentialType,
+	isManagedCredentialReference,
 } from '@/spike-managed-credential-types';
 
 const description = (d: Partial<INodeTypeDescription>): INodeTypeDescription =>
@@ -127,12 +128,25 @@ describe('spike managed credential types', () => {
 			expect(() => assertManagedCredentialType('slackApi')).not.toThrow();
 		});
 
-		it('allows only the managed type when managed mode is on', () => {
+		it('refuses every type when managed mode is on, the managed type too', () => {
 			process.env.N8N_MANAGED_CREDENTIAL_TYPE = 'sapManagedApi';
-			expect(() => assertManagedCredentialType('sapManagedApi')).not.toThrow();
-			expect(() => assertManagedCredentialType('slackApi')).toThrow(
-				'Only "sapManagedApi" credentials can be created on this instance',
-			);
+			for (const type of ['sapManagedApi', 'slackApi']) {
+				expect(() => assertManagedCredentialType(type)).toThrow(
+					'Credentials cannot be created on this instance',
+				);
+			}
+		});
+	});
+
+	describe('isManagedCredentialReference', () => {
+		it('is false when managed mode is off', () => {
+			expect(isManagedCredentialReference('sapManagedApi')).toBe(false);
+		});
+
+		it('matches only the managed type when managed mode is on', () => {
+			process.env.N8N_MANAGED_CREDENTIAL_TYPE = 'sapManagedApi';
+			expect(isManagedCredentialReference('sapManagedApi')).toBe(true);
+			expect(isManagedCredentialReference('slackApi')).toBe(false);
 		});
 	});
 });

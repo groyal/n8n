@@ -15,9 +15,16 @@ export function resolveManagedCredentialType(_node: INode, requestedType: string
 	return getManagedCredentialType() ?? requestedType;
 }
 
-// SPIKE (API-663): approach A. The ORD ID comes from the "Managed by SAP" credential that
-// is linked to the node. It is recorded when the node reads its credential, and added to
-// every request that node sends, including requests it builds itself.
+// SPIKE (API-663): approach A. The ORD ID sits on the node's credential reference in the
+// workflow JSON, with no stored record: `{ id: null, name, ordId }`. It is recorded when the
+// node reads its credential, and added to every request that node sends, including requests
+// it builds itself.
+export function readManagedOrdId(node: INode, managedType: string): string | undefined {
+	const reference: object | undefined = node.credentials?.[managedType];
+	if (!reference || !('ordId' in reference)) return undefined;
+	return typeof reference.ordId === 'string' && reference.ordId ? reference.ordId : undefined;
+}
+
 const ordIdByNode = new WeakMap<INode, string>();
 
 export function rememberManagedOrdId(node: INode, ordId: unknown): void {
