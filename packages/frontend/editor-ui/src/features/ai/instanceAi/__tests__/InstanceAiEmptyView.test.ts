@@ -519,6 +519,14 @@ const InstanceAiInputStub = defineComponent({
 				h(
 					'button',
 					{
+						'data-test-id': 'instance-ai-input-stub-submit-mention',
+						onClick: () => submit('Fix [@Orders](n8n-resource://workflow/w1) now'),
+					},
+					'submit mention',
+				),
+				h(
+					'button',
+					{
 						'data-test-id': 'instance-ai-input-stub-submit-empty',
 						onClick: () => submit(''),
 					},
@@ -2060,6 +2068,17 @@ describe('InstanceAiEmptyView', () => {
 			expect(pendingMessage?.files[0].name).toBe('context.txt');
 			expect(pendingMessage?.files[0].type).toBe('text/plain');
 			expect(pendingMessage?.files[0].size).toBe('file content'.length);
+		});
+
+		it('hands the agent the label of a mention, not its token', async () => {
+			const { getByTestId } = renderView();
+
+			await fireEvent.click(getByTestId('n8n-chat-agent-picker-stub-select-agent'));
+			await nextTick();
+			await fireEvent.click(getByTestId('instance-ai-input-stub-submit-mention'));
+			await flushPromises();
+
+			expect(consumePendingN8nChatMessage('agent-1')?.text).toBe('Fix @Orders now');
 		});
 
 		it('drops the hand-off when the navigation to the agent fails', async () => {
