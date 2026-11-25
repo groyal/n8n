@@ -233,7 +233,9 @@ instructions, and supported reference files.
   skipped, and deleted totals. Standalone conflicts return HTTP 409 with a
   `skill-conflict` issue and `skillId`. Agent dependency conflicts retain the
   `agent-invalid` issue and `skills.<skillId>` path. If a later import step fails
-  after Skill writes, error metadata includes the saved Skill outcomes.
+  after Skill writes, the CLI shows the saved Skill outcomes and counts. With
+  `--json`, it also writes them to standard output. The command exits with an
+  error in both modes.
 
 Standalone selections use package format 2. This destination also reads format
 1. Older destinations reject format 2. Skills must be available on the

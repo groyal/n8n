@@ -121,8 +121,22 @@ export async function planStandaloneSkills(
 export async function applyStandaloneSkills(
 	request: ImportRequest,
 	plan?: StandaloneSkillPlan,
+	phase: 'all' | 'writes' | 'removals' = 'all',
 ): Promise<ImportedSkillSummary[]> {
 	if (!plan) return [];
+	if (phase !== 'all') {
+		const outcomes = plan.outcomes.filter(({ status }) =>
+			phase === 'removals' ? status === 'deleted' : status !== 'deleted',
+		);
+		const ids = new Set(outcomes.map(({ localId }) => localId));
+		plan = {
+			...plan,
+			writes: phase === 'writes' ? plan.writes : { shared: [], sharedUsers: new Set() },
+			removals: phase === 'removals' ? plan.removals : [],
+			checked: plan.checked.filter(({ id }) => ids.has(id)),
+			outcomes,
+		};
+	}
 	const { SkillImporter } = await import('../entities/skill/skill-importer.js');
 	return await Container.get(SkillImporter).applyStandalone(request.user, plan);
 }

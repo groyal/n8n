@@ -221,9 +221,10 @@ export class WorkflowPackageImporter {
 			request.apiKeyScopes,
 			skillPlan,
 		);
-		const skillOutcomes = await applyStandaloneSkills(request, skillPlan);
+		const skillOutcomes = await applyStandaloneSkills(request, skillPlan, 'writes');
 		try {
 			const content = await this.importOrchestrator.apply(plan);
+			skillOutcomes.push(...(await applyStandaloneSkills(request, skillPlan, 'removals')));
 
 			const { workflows: published, agentOutcomes } = await this.importOrchestrator.publishPackage({
 				user: request.user,

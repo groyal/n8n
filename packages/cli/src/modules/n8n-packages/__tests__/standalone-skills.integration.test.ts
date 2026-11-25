@@ -13,6 +13,8 @@ import { Container } from '@n8n/di';
 import { CredentialTypes } from '@/credential-types';
 import { storedAgentConfig } from '@/modules/agents/__tests__/test-utils/stored-agent-config';
 import { AgentSkillRefsService } from '@/modules/agents/agent-skill-refs.service';
+import { AgentRuntimeCacheService } from '@/modules/agents/agent-runtime-cache.service';
+import { AgentUpdateBroadcaster } from '@/modules/agents/agent-update-broadcaster';
 import { AgentHistoryRepository } from '@/modules/agents/repositories/agent-history.repository';
 import { registerSkillUsage } from '@/modules/agents/register-skill-usage';
 import { SkillAccessService, SkillService } from '@/modules/skills';
@@ -41,6 +43,8 @@ import { PackageImportConfig } from '../n8n-packages.config';
 import type { SerializedSkill } from '../spec/serialized/skill.schema';
 
 mockInstance(TelemetryProxy);
+mockInstance(AgentRuntimeCacheService);
+mockInstance(AgentUpdateBroadcaster);
 mockInstance(CredentialTypes).recognizes.mockReturnValue(true);
 const license = new LicenseMocker();
 let owner: User;
@@ -81,10 +85,32 @@ afterAll(async () => {
 	await testDb.terminate();
 });
 
-async function archive(skills: SerializedSkill[], version = '2') {
+async function archive(skills: SerializedSkill[], version = '2', agentSkillIds?: string[]) {
 	const writer = new TarPackageWriter();
 	for (const skill of skills)
 		writer.writeFile(`skills/${skill.id}/skill.json`, JSON.stringify(skill));
+	if (agentSkillIds) {
+		writer.writeFile(
+			'agents/imported/agent-metadata.json',
+			JSON.stringify({ versionId: 'draft', publishedVersionId: null }),
+		);
+		writer.writeFile(
+			'agents/imported/agent.json',
+			JSON.stringify({
+				id: 'imported-agent',
+				name: 'Imported agent',
+				availableInMCP: false,
+				config: {
+					name: 'Imported agent',
+					model: '',
+					instructions: '',
+					skills: agentSkillIds.map((id) => ({ type: 'skill', id })),
+				},
+				tools: {},
+				tasks: {},
+			}),
+		);
+	}
 	writer.writeFile(
 		'manifest.json',
 		JSON.stringify({
@@ -92,6 +118,9 @@ async function archive(skills: SerializedSkill[], version = '2') {
 			sourceN8nVersion: '2.0.0',
 			sourceId: 'source',
 			skills: skills.map(({ id, skill }) => ({ id, name: skill.name, target: `skills/${id}` })),
+			...(agentSkillIds
+				? { agents: [{ id: 'imported-agent', name: 'Imported agent', target: 'agents/imported' }] }
+				: {}),
 			...(version === '2' ? { selectedSkillIds: skills.map(({ id }) => id) } : {}),
 		}),
 	);
@@ -208,19 +237,11 @@ it('reports batch rename conflicts across scopes before applying the plan', asyn
 		{},
 	);
 	projectSkill.skill.name = instanceSkill.skill.name = 'New guide';
-	const importer = Container.get(SkillImporter);
-	const plan = await importer.planStandalone(
-		owner,
-		[projectSkill, instanceSkill].map((skill) => ({ skill, projectId: destination.id })),
-		[],
-		'new-version',
-	);
-	expect(plan.issues).toEqual([
-		expect.objectContaining({ type: 'skill-conflict', skillId: instanceSkill.id }),
-	]);
-	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow(
-		'Resolve the Skill conflicts',
-	);
+	await expect(importSkills(await archive([projectSkill, instanceSkill]))).rejects.toMatchObject({
+		meta: {
+			issues: [expect.objectContaining({ type: 'skill-conflict', skillId: instanceSkill.id })],
+		},
+	});
 	for (const { id } of [projectSkill, instanceSkill])
 		expect(await findLatestSkillVersion(id)).toMatchObject({ version: 1 });
 });
@@ -239,9 +260,60 @@ it('imports only the explicit selection and preserves unrelated Skills', async (
 	expect(await findSkillIds()).toEqual(['b', 'unselected']);
 });
 
+it.each([
+	[false, 'instance'],
+	[true, 'instance'],
+	[false, 'project'],
+	[true, 'project'],
+] as const)(
+	'checks batch renames in save order (vacate name first: %s, scope: %s)',
+	async (vacateFirst, scope) => {
+		const projectSkill = packaged('project-skill');
+		const instanceSkill = packaged('other-skill', scope);
+		instanceSkill.skill.name = 'Instance guide';
+		await importSkills(await archive([projectSkill, instanceSkill]));
+		const follower = await createAgent({ projectId: destination.id, schema: agentSchema });
+		await Container.get(AgentSkillRefsService).replaceDraftRefs(
+			follower,
+			[
+				{ type: 'skill', id: projectSkill.id },
+				{ type: 'skill', id: instanceSkill.id },
+			],
+			{},
+		);
+		projectSkill.skill.name = instanceSkill.skill.name;
+		instanceSkill.skill.name = 'New instance guide';
+		const skills = vacateFirst ? [instanceSkill, projectSkill] : [projectSkill, instanceSkill];
+		if (vacateFirst) {
+			vi.spyOn(Container.get(SkillService), 'refreshFollowingAgents').mockResolvedValue();
+			await importSkills(await archive(skills));
+			for (const skill of skills)
+				expect(await findLatestSkillVersion(skill.id)).toMatchObject({
+					version: 2,
+					name: skill.skill.name,
+				});
+		} else {
+			await expect(importSkills(await archive(skills))).rejects.toMatchObject({
+				meta: {
+					issues: [expect.objectContaining({ type: 'skill-conflict', skillId: projectSkill.id })],
+				},
+			});
+			for (const skill of skills)
+				expect(await findLatestSkillVersion(skill.id)).toMatchObject({ version: 1 });
+		}
+	},
+);
+
+it('reports name conflicts before creating any Skill', async () => {
+	await expect(importSkills(await archive([packaged('a'), packaged('b')]))).rejects.toMatchObject({
+		meta: { issues: [expect.objectContaining({ type: 'skill-conflict' })] },
+	});
+	expect(await findSkillIds()).toEqual([]);
+});
+
 it.each([false, true])(
-	'checks batch renames in save order (vacate name first: %s)',
-	async (vacateFirst) => {
+	'uses standalone rename order when an imported Agent references the batch (both Skills: %s)',
+	async (both) => {
 		const projectSkill = packaged('project-skill');
 		const instanceSkill = packaged('instance-skill', 'instance');
 		instanceSkill.skill.name = 'Instance guide';
@@ -257,42 +329,54 @@ it.each([false, true])(
 		);
 		projectSkill.skill.name = instanceSkill.skill.name;
 		instanceSkill.skill.name = 'New instance guide';
-		const skills = vacateFirst ? [instanceSkill, projectSkill] : [projectSkill, instanceSkill];
-		const importer = Container.get(SkillImporter);
-		const plan = await importer.planStandalone(
-			owner,
-			skills.map((skill) => ({ skill, projectId: destination.id })),
-			[],
-			'new-version',
+		vi.spyOn(Container.get(SkillService), 'refreshFollowingAgents').mockResolvedValue();
+		const result = await importSkills(
+			await archive(
+				[instanceSkill, projectSkill],
+				'2',
+				both ? [projectSkill.id, instanceSkill.id] : [projectSkill.id],
+			),
 		);
-		if (vacateFirst) {
-			expect(plan.issues).toEqual([]);
-			vi.spyOn(Container.get(SkillService), 'refreshFollowingAgents').mockResolvedValue();
-			await importer.applyStandalone(owner, plan);
-			for (const skill of skills)
-				expect(await findLatestSkillVersion(skill.id)).toMatchObject({
-					version: 2,
-					name: skill.skill.name,
-				});
-		} else {
-			expect(plan.issues).toEqual([
-				expect.objectContaining({ type: 'skill-conflict', skillId: projectSkill.id }),
-			]);
-			await expect(importer.applyStandalone(owner, plan)).rejects.toThrow(
-				'Resolve the Skill conflicts',
-			);
-			for (const skill of skills)
-				expect(await findLatestSkillVersion(skill.id)).toMatchObject({ version: 1 });
-		}
+		expect(result.counts.skills?.updated).toBe(2);
+		for (const skill of [projectSkill, instanceSkill])
+			expect(await findLatestSkillVersion(skill.id)).toMatchObject({
+				version: 2,
+				name: skill.skill.name,
+			});
 	},
 );
 
-it('reports name conflicts before creating any Skill', async () => {
-	await expect(importSkills(await archive([packaged('a'), packaged('b')]))).rejects.toMatchObject({
-		meta: { issues: [expect.objectContaining({ type: 'skill-conflict' })] },
-	});
-	expect(await findSkillIds()).toEqual([]);
-});
+it.each(['project', 'workflow'] as const)(
+	'defers explicit Skill deletion until %s content is saved',
+	async (shape) => {
+		const project = await createTeamProject('Removal destination', owner);
+		const workflow = await createWorkflow(
+			{ name: 'Workflow', nodes: [], connections: {} },
+			project,
+		);
+		const { id } = await createSkill({ projectId: project.id, content });
+		const exported = await service.exportPackage({
+			user: owner,
+			...(shape === 'project'
+				? { projectIds: [project.id], includeSkills: true }
+				: { workflowIds: [workflow.id], skillIds: [id] }),
+		});
+		const packageBuffer = await streamToBuffer(exported.stream);
+		const options = {
+			projectId: shape === 'project' ? undefined : project.id,
+			skillIds: [],
+			deletedSkillIds: [id],
+		};
+		vi.spyOn(Container.get(ImportOrchestrator), 'apply').mockRejectedValueOnce(
+			new Error('Content write failed'),
+		);
+		await expect(importSkills(packageBuffer, options)).rejects.toThrow('Content write failed');
+		expect(await findSkill(id)).not.toBeNull();
+		const result = await importSkills(packageBuffer, options);
+		expect(result.skills).toEqual([expect.objectContaining({ localId: id, status: 'deleted' })]);
+		expect(await findSkill(id)).toBeNull();
+	},
+);
 
 it('rejects an identity in another scope', async () => {
 	await createSkill({ id: 'skill_one', projectId: null, content });
@@ -377,11 +461,50 @@ it('detects edits between planning and applying', async () => {
 		'new-version',
 	);
 	await createSkillVersion(skill.id, { ...content, instructions: 'A later edit' });
-	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('changed after planning');
+	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('changed somewhere else');
 	expect(await findLatestSkillVersion(skill.id)).toMatchObject({
 		version: 2,
 		instructions: 'A later edit',
 	});
+});
+
+it.each(['unchanged', 'skipped'] as const)(
+	'rechecks a %s Skill before applying the batch',
+	async (status) => {
+		const skill = packaged();
+		await importSkills(await archive([skill]));
+		if (status === 'skipped') skill.skill.instructions = 'Skip this change';
+		const importer = Container.get(SkillImporter);
+		const plan = await importer.planStandalone(
+			owner,
+			[{ skill, projectId: destination.id }],
+			[],
+			'skip',
+		);
+		expect(plan.outcomes[0].status).toBe(status);
+		await createSkillVersion(skill.id, { ...content, instructions: 'Later edit' });
+		await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('changed after planning');
+		expect(await findLatestSkillVersion(skill.id)).toMatchObject({
+			version: 2,
+			instructions: 'Later edit',
+		});
+	},
+);
+
+it('rejects a source link added after planning', async () => {
+	const skill = packaged();
+	await importSkills(await archive([skill]));
+	skill.skill.instructions = 'Reviewed edit';
+	const importer = Container.get(SkillImporter);
+	const plan = await importer.planStandalone(
+		owner,
+		[{ skill, projectId: destination.id }],
+		[],
+		'new-version',
+	);
+	vi.spyOn(Container.get(SkillService), 'isSourceManaged').mockResolvedValue(true);
+	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('now managed by a source');
+	expect(await findLatestSkillVersion(skill.id)).toMatchObject({ version: 1 });
 });
 
 it('rejects package imports on a protected instance', async () => {
@@ -561,13 +684,19 @@ it('rechecks the destination scope before applying a reviewed plan', async () =>
 		{},
 		{ checkedSource: { projectId: destination.id } },
 	);
-	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('changed after planning');
+	await expect(importer.applyStandalone(owner, plan)).rejects.toThrow('skill scope changed');
 	expect(await findLatestSkillVersion(skill.id)).toMatchObject({ version: 1 });
 });
 
 it('reports saved changes if refreshing consumers fails', async () => {
 	await importSkills(await archive([packaged()]));
 	const skill = packaged();
+	const follower = await createAgent({ projectId: destination.id, schema: agentSchema });
+	await Container.get(AgentSkillRefsService).replaceDraftRefs(
+		follower,
+		[{ type: 'skill', id: skill.id }],
+		{},
+	);
 	skill.skill.instructions = 'New instructions';
 	vi.spyOn(Container.get(SkillService), 'refreshFollowingAgents').mockRejectedValue(
 		new Error('Refresh failed'),
@@ -601,6 +730,47 @@ it('reports saved Skills if a later project content write fails', async () => {
 		},
 	});
 	expect(await findSkill(id)).toMatchObject({ projectId: project.id });
+});
+
+it('reports both Skill phases when publishing fails', async () => {
+	const project = await createTeamProject('Skill phases', owner);
+	const created = await createSkill({ projectId: project.id, content });
+	const removed = await createSkill({
+		projectId: project.id,
+		content: { ...content, name: 'Removed guide' },
+	});
+	const exported = await service.exportPackage({
+		user: owner,
+		projectIds: [project.id],
+		includeSkills: true,
+	});
+	const packageBuffer = await streamToBuffer(exported.stream);
+	await deleteAllSkills();
+	await createSkill({
+		id: removed.id,
+		projectId: project.id,
+		content: { ...content, name: 'Removed guide' },
+	});
+	vi.spyOn(Container.get(ImportOrchestrator), 'publishPackage').mockRejectedValueOnce(
+		new Error('Publish failed'),
+	);
+	await expect(
+		importSkills(packageBuffer, {
+			projectId: undefined,
+			skillIds: [created.id],
+			deletedSkillIds: [removed.id],
+		}),
+	).rejects.toMatchObject({
+		meta: {
+			counts: { skills: { created: 1, deleted: 1 } },
+			skills: [
+				expect.objectContaining({ localId: created.id, status: 'created' }),
+				expect.objectContaining({ localId: removed.id, status: 'deleted' }),
+			],
+		},
+	});
+	expect(await findSkill(created.id)).not.toBeNull();
+	expect(await findSkill(removed.id)).toBeNull();
 });
 
 it('reports workflow and Skill conflicts together before writes', async () => {
