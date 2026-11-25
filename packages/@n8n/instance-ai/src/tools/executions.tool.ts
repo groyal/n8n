@@ -334,6 +334,16 @@ async function handleRun(
 	const allowedBySessionGrant = context.sessionApprovedToolKeys?.has(grantKey) === true;
 	const needsApproval = !allowedByScope && !allowedBySessionGrant;
 
+	// If resumed with denial
+	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
+		return {
+			executionId: '',
+			status: 'error' as const,
+			denied: true,
+			reason: 'User denied the action',
+		};
+	}
+
 	// Read the files before the approval, so a missing file fails early and the prompt can name them.
 	const workflowFiles = workflowFilesOf(context);
 	const { binary, error: fileError } = workflowFiles
@@ -359,16 +369,6 @@ async function handleRun(
 			} satisfies InstanceAiApprovalDetails,
 			severity: 'warning' as const,
 		});
-	}
-
-	// If resumed with denial
-	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
-		return {
-			executionId: '',
-			status: 'error' as const,
-			denied: true,
-			reason: 'User denied the action',
-		};
 	}
 
 	// "Always allow" — persist the grant so subsequent runs of this workflow skip HITL.
