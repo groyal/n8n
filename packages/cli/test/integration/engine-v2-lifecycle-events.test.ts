@@ -20,7 +20,7 @@ import { Logger } from '@n8n/backend-common';
 
 import { createExecutionIdV2 } from '@/executions/execution-id';
 import { EngineV2LifecycleSubscriptions } from '@/modules/engine-v2/engine-lifecycle-event-subscriptions';
-import { EngineV2ExecutionCompletions } from '@/modules/engine-v2/engine-v2-execution-completions';
+import { EngineV2ExecutionWatches } from '@/modules/engine-v2/engine-v2-execution-watches';
 import { createInMemoryExecutionChannel } from '@/modules/engine-v2/execution-channel/in-memory-execution-channel';
 import { ExecutionChannelReceiver } from '@/modules/engine-v2/execution-channel/execution-channel-receiver';
 import { createLifecycleEventCodec } from '@/modules/engine-v2/execution-channel/lifecycle-event-frame';
@@ -335,7 +335,7 @@ describe('waiting for the end of an engine v2 run', () => {
 				return { executionId };
 			});
 			const executionId = createExecutionIdV2();
-			const watch = await Container.get(EngineV2ExecutionCompletions).watch(executionId);
+			const watch = await Container.get(EngineV2ExecutionWatches).watch(executionId);
 			onTestFinished(() => watch.stop());
 
 			await manualRun(undefined, executionId);

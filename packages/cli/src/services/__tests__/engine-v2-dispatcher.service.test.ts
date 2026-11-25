@@ -20,7 +20,7 @@ import { mock } from 'vitest-mock-extended';
 import type { CredentialsPermissionChecker } from '@/executions/pre-execution-checks';
 import type { ResumableExecution } from '@/interfaces';
 import { EngineV2LifecycleSubscriptions } from '@/modules/engine-v2/engine-lifecycle-event-subscriptions';
-import { EngineV2ExecutionCompletions } from '@/modules/engine-v2/engine-v2-execution-completions';
+import { EngineV2ExecutionWatches } from '@/modules/engine-v2/engine-v2-execution-watches';
 import {
 	EngineDidNotAdmitError,
 	type EngineDataPlaneProxyService,
@@ -142,14 +142,14 @@ describe('EngineV2Dispatcher', () => {
 	const payloadFiles = mock<EngineV2PayloadFiles>();
 	const manualRunPlanner = mock<EngineV2ManualRunPlanner>();
 	const lifecycleSubscriptions = mockInstance(EngineV2LifecycleSubscriptions);
-	const completions = mockInstance(EngineV2ExecutionCompletions);
+	const executionWatches = mockInstance(EngineV2ExecutionWatches);
 
 	let dispatcher: EngineV2Dispatcher;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
 		lifecycleSubscriptions.subscribe.mockResolvedValue(undefined);
-		completions.isWatching.mockReturnValue(false);
+		executionWatches.isWatching.mockReturnValue(false);
 		proxy.isAvailable.mockReturnValue(true);
 		proxy.startExecution.mockResolvedValue({ executionId: 'dp-uuid' });
 		payloadFiles.claimForExecution.mockResolvedValue(undefined);
@@ -265,7 +265,7 @@ describe('EngineV2Dispatcher', () => {
 			'subscribes to lifecycle events for a run with a push ref and %s',
 			async (_name, { minted, watched }) => {
 				const callerId = minted ? createExecutionIdV2() : undefined;
-				completions.isWatching.mockImplementation((id) => watched && id === callerId);
+				executionWatches.isWatching.mockImplementation((id) => watched && id === callerId);
 
 				const executionId = await dispatcher.start(
 					runData({ pushRef: 'push-1', engineV2ExecutionId: callerId }),
@@ -280,7 +280,7 @@ describe('EngineV2Dispatcher', () => {
 
 		it('requests lifecycle events for a watched run without a push ref', async () => {
 			const executionId = createExecutionIdV2();
-			completions.isWatching.mockImplementation((id) => id === executionId);
+			executionWatches.isWatching.mockImplementation((id) => id === executionId);
 
 			await dispatcher.start(runData({ engineV2ExecutionId: executionId }));
 

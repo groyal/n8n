@@ -9,9 +9,9 @@ import type {
 	LifecycleEventListener,
 } from '../engine-lifecycle-event-subscriptions';
 import {
-	EngineV2ExecutionCompletions,
-	type EngineV2CompletionOutcome,
-} from '../engine-v2-execution-completions';
+	EngineV2ExecutionWatches,
+	type EngineV2WatchOutcome,
+} from '../engine-v2-execution-watches';
 
 const executionId = 'exec-1';
 const at = '2026-10-29T10:00:00.000Z';
@@ -20,12 +20,12 @@ const ended = (
 	type: 'execution:completed' | 'execution:failed' | 'execution:cancelled',
 ): LifecycleEvent => ({ type, executionId, workflowId: 'wf-1', at });
 
-describe('EngineV2ExecutionCompletions', () => {
+describe('EngineV2ExecutionWatches', () => {
 	const subscriptions = mock<EngineV2LifecycleSubscriptions>();
 	let listeners: LifecycleEventListener[];
 	let remove: Mock<() => void>;
 	let controller: AbortController;
-	let completions: EngineV2ExecutionCompletions;
+	let watches: EngineV2ExecutionWatches;
 
 	const emit = (event: LifecycleEvent) => {
 		for (const listener of listeners) listener(event);
@@ -41,7 +41,7 @@ describe('EngineV2ExecutionCompletions', () => {
 			listeners.push(listener);
 			return remove;
 		});
-		completions = new EngineV2ExecutionCompletions(subscriptions);
+		watches = new EngineV2ExecutionWatches(subscriptions);
 	});
 
 	afterEach(() => {
@@ -55,7 +55,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	] as const)(
 		'reports %s as a finished run with status %s to every pending and later wait',
 		async (type, status) => {
-			const watch = await completions.watch(executionId);
+			const watch = await watches.watch(executionId);
 			const pending = [watch.wait({ timeoutMs: 1_000 }), watch.wait({ timeoutMs: 1_000 })];
 
 			emit(ended(type));
@@ -67,7 +67,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	);
 
 	it('keeps the first end when a second end event arrives', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 
 		emit(ended('execution:completed'));
 		emit(ended('execution:failed'));
@@ -80,7 +80,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	});
 
 	it('ignores events that do not end the execution', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 		const outcome = watch.wait({ timeoutMs: 1_000 });
 
 		emit({
@@ -97,7 +97,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	});
 
 	it('keeps waiting until a timeout of 24 hours runs out', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 		const outcome = watch.wait({ timeoutMs: Time.days.toMilliseconds });
 
 		await vi.advanceTimersByTimeAsync(Time.days.toMilliseconds - 1);
@@ -107,7 +107,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	});
 
 	it('rejects a timeout above 24 hours', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 
 		await expect(watch.wait({ timeoutMs: Time.days.toMilliseconds + 1 })).rejects.toThrow(
 			UnexpectedError,
@@ -115,14 +115,14 @@ describe('EngineV2ExecutionCompletions', () => {
 	});
 
 	it('resolves as aborted at once when the signal is already aborted', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 
 		await expect(
 			watch.wait({ timeoutMs: 1_000, abortSignal: AbortSignal.abort() }),
 		).resolves.toEqual({ kind: 'aborted' });
 	});
 
-	it.each<[string, () => Promise<unknown>, EngineV2CompletionOutcome]>([
+	it.each<[string, () => Promise<unknown>, EngineV2WatchOutcome]>([
 		[
 			'the execution ends',
 			async () => emit(ended('execution:failed')),
@@ -137,7 +137,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	])(
 		'ends a pending wait, clears its timer and abort listener, and still records the end when %s',
 		async (_name, settle, expected) => {
-			const watch = await completions.watch(executionId);
+			const watch = await watches.watch(executionId);
 			const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
 			const outcome = watch.wait({ timeoutMs: 1_000, abortSignal: controller.signal });
 
@@ -154,7 +154,7 @@ describe('EngineV2ExecutionCompletions', () => {
 		},
 	);
 
-	it.each<[string, () => void, EngineV2CompletionOutcome]>([
+	it.each<[string, () => void, EngineV2WatchOutcome]>([
 		[
 			'the execution ends',
 			() => emit(ended('execution:completed')),
@@ -164,14 +164,14 @@ describe('EngineV2ExecutionCompletions', () => {
 	])(
 		'removes its listener once, stops watching, and resolves a later wait at once when %s',
 		async (_name, end, expected) => {
-			const watch = await completions.watch(executionId);
+			const watch = await watches.watch(executionId);
 
 			end();
 			watch.stop();
 			watch.stop();
 
 			expect(remove).toHaveBeenCalledTimes(1);
-			expect(completions.isWatching(executionId)).toBe(false);
+			expect(watches.isWatching(executionId)).toBe(false);
 			await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual(expected);
 		},
 	);
@@ -182,7 +182,7 @@ describe('EngineV2ExecutionCompletions', () => {
 			return remove;
 		});
 
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 
 		expect(remove).toHaveBeenCalledTimes(1);
 		await expect(watch.wait({ timeoutMs: 1_000 })).resolves.toEqual({
@@ -192,7 +192,7 @@ describe('EngineV2ExecutionCompletions', () => {
 	});
 
 	it('resolves a pending wait as aborted and clears its timer when the watch stops', async () => {
-		const watch = await completions.watch(executionId);
+		const watch = await watches.watch(executionId);
 		const outcome = watch.wait({ timeoutMs: 1_000 });
 
 		watch.stop();
@@ -209,25 +209,25 @@ describe('EngineV2ExecutionCompletions', () => {
 			return remove;
 		});
 
-		expect(completions.isWatching(executionId)).toBe(false);
-		const pending = completions.watch(executionId);
-		expect(completions.isWatching(executionId)).toBe(true);
+		expect(watches.isWatching(executionId)).toBe(false);
+		const pending = watches.watch(executionId);
+		expect(watches.isWatching(executionId)).toBe(true);
 		activate();
 		const first = await pending;
-		await completions.watch(executionId);
+		await watches.watch(executionId);
 
 		first.stop();
-		expect(completions.isWatching(executionId)).toBe(true);
+		expect(watches.isWatching(executionId)).toBe(true);
 		emit(ended('execution:completed'));
-		expect(completions.isWatching(executionId)).toBe(false);
+		expect(watches.isWatching(executionId)).toBe(false);
 	});
 
 	it('rejects and stops watching when the subscription fails', async () => {
 		const failure = new OperationalError('Engine v2 could not subscribe to the lifecycle events');
 		subscriptions.listen.mockRejectedValueOnce(failure);
 
-		await expect(completions.watch(executionId)).rejects.toBe(failure);
+		await expect(watches.watch(executionId)).rejects.toBe(failure);
 
-		expect(completions.isWatching(executionId)).toBe(false);
+		expect(watches.isWatching(executionId)).toBe(false);
 	});
 });

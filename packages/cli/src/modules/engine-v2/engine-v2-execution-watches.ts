@@ -6,16 +6,16 @@ import type { TerminalExecutionStatus } from 'n8n-workflow';
 
 import { EngineV2LifecycleSubscriptions } from './engine-lifecycle-event-subscriptions';
 
-export type EngineV2CompletionOutcome =
+export type EngineV2WatchOutcome =
 	| { kind: 'finished'; status: TerminalExecutionStatus }
 	| { kind: 'timeout' }
 	| { kind: 'aborted' };
 
-export type EngineV2CompletionWaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
+export type EngineV2WatchWaitOptions = { timeoutMs: number; abortSignal?: AbortSignal };
 
 const MAX_WAIT_TIMEOUT_MS = Time.days.toMilliseconds;
 
-export interface EngineV2CompletionWatch {
+export interface EngineV2ExecutionWatch {
 	/**
 	 * Resolves when the execution ends, the time runs out, the signal aborts, or
 	 * the watch stops. Does not stop the watch or cancel the run.
@@ -23,7 +23,7 @@ export interface EngineV2CompletionWatch {
 	 *
 	 * @throws {UnexpectedError} If `timeoutMs` is more than 24 hours.
 	 */
-	wait(options: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome>;
+	wait(options: EngineV2WatchWaitOptions): Promise<EngineV2WatchOutcome>;
 	/** Ends the watch and resolves each pending wait as `aborted`. */
 	stop(): void;
 }
@@ -34,12 +34,12 @@ const FINISHED_STATUS: Partial<Record<LifecycleEvent['type'], TerminalExecutionS
 	'execution:cancelled': 'canceled',
 };
 
-class CompletionWatch implements EngineV2CompletionWatch {
-	private outcome?: EngineV2CompletionOutcome;
+class ExecutionWatch implements EngineV2ExecutionWatch {
+	private outcome?: EngineV2WatchOutcome;
 
 	private removeListener?: () => void;
 
-	private readonly waiters = new Set<(outcome: EngineV2CompletionOutcome) => void>();
+	private readonly waiters = new Set<(outcome: EngineV2WatchOutcome) => void>();
 
 	constructor(private readonly onEnd: () => void) {}
 
@@ -54,10 +54,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
 		if (status !== undefined) this.end({ kind: 'finished', status });
 	}
 
-	async wait({
-		timeoutMs,
-		abortSignal,
-	}: EngineV2CompletionWaitOptions): Promise<EngineV2CompletionOutcome> {
+	async wait({ timeoutMs, abortSignal }: EngineV2WatchWaitOptions): Promise<EngineV2WatchOutcome> {
 		if (timeoutMs > MAX_WAIT_TIMEOUT_MS) {
 			throw new UnexpectedError('The wait timeout must not be more than 24 hours', {
 				extra: { timeoutMs },
@@ -67,7 +64,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
 		if (abortSignal?.aborted) return { kind: 'aborted' };
 
 		return await new Promise((resolve) => {
-			const settle = (outcome: EngineV2CompletionOutcome) => {
+			const settle = (outcome: EngineV2WatchOutcome) => {
 				clearTimeout(timer);
 				abortSignal?.removeEventListener('abort', onAbort);
 				this.waiters.delete(settle);
@@ -84,7 +81,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
 		this.end({ kind: 'aborted' });
 	}
 
-	private end(outcome: EngineV2CompletionOutcome): void {
+	private end(outcome: EngineV2WatchOutcome): void {
 		if (this.outcome) return;
 
 		this.outcome = outcome;
@@ -100,7 +97,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
  *
  * ```ts
  * const executionId = createExecutionIdV2();
- * const watch = await completions.watch(executionId);
+ * const watch = await executionWatches.watch(executionId);
  * try {
  * 	await workflowRunner.run({ ...runData, engineV2ExecutionId: executionId });
  * 	const outcome = await watch.wait({ timeoutMs });
@@ -113,7 +110,7 @@ class CompletionWatch implements EngineV2CompletionWatch {
  * reads the data plane for its status.
  */
 @Service()
-export class EngineV2ExecutionCompletions {
+export class EngineV2ExecutionWatches {
 	/** The number of active watches of each execution. */
 	private readonly watchCounts = new Map<string, number>();
 
@@ -125,9 +122,9 @@ export class EngineV2ExecutionCompletions {
 	 * @throws {UnexpectedError} If the lifecycle event receiver is not set.
 	 * @throws {OperationalError} If the subscription fails or times out.
 	 */
-	async watch(executionId: string): Promise<EngineV2CompletionWatch> {
+	async watch(executionId: string): Promise<EngineV2ExecutionWatch> {
 		this.watchCounts.set(executionId, (this.watchCounts.get(executionId) ?? 0) + 1);
-		const watch = new CompletionWatch(() => this.release(executionId));
+		const watch = new ExecutionWatch(() => this.release(executionId));
 		try {
 			watch.attach(await this.subscriptions.listen(executionId, (event) => watch.receive(event)));
 		} catch (error) {

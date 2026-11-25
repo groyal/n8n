@@ -334,10 +334,10 @@ export class EngineV2Dispatcher {
 	): Promise<LifecycleEventSubscription | undefined> {
 		if (data.pushRef) return { kind: 'all' };
 
-		const { EngineV2ExecutionCompletions } = await import(
-			'@/modules/engine-v2/engine-v2-execution-completions.js'
+		const { EngineV2ExecutionWatches } = await import(
+			'@/modules/engine-v2/engine-v2-execution-watches.js'
 		);
-		if (Container.get(EngineV2ExecutionCompletions).isWatching(executionId)) return { kind: 'all' };
+		if (Container.get(EngineV2ExecutionWatches).isWatching(executionId)) return { kind: 'all' };
 
 		return undefined;
 	}
