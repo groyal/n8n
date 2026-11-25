@@ -1122,7 +1122,7 @@ export class TelemetryEventRelay extends EventRelay {
 		userAgent,
 		client,
 	}: RelayEventMap['public-api-invoked']) {
-		this.telemetry.trackApiInvocation({
+		this.telemetry.trackPublicApiInvocation({
 			user_id: userId,
 			route,
 			result,
@@ -1164,18 +1164,8 @@ export class TelemetryEventRelay extends EventRelay {
 
 	// #region Internal API
 
-	private internalApiInvoked({
-		userId,
-		route,
-		result,
-		client,
-	}: RelayEventMap['internal-api-invoked']) {
-		this.telemetry.trackInternalApiInvocation({
-			user_id: userId,
-			route,
-			result,
-			client,
-		});
+	private internalApiInvoked({ route, client }: RelayEventMap['internal-api-invoked']) {
+		this.telemetry.trackInternalApiInvocation({ route, client });
 	}
 
 	// #endregion
